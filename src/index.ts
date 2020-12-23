@@ -62,5 +62,6 @@ console.log({
   newKeypair: { public: newKeypair.publicKey(), secret: newKeypair.secret() },
 });
 createAccount(newKeypair).catch((err) => {
+  console.error(err)
   console.error(err?.response?.data?.extras?.result_codes)
 });
