@@ -7,6 +7,8 @@ services:
     ports:
       - 9001:8000
     environment:
+      - ARTIFICIALLY_GENERATE_LOAD_FOR_TESTING=true
+      - ALLOW_LOCALHOST_FOR_TESTING=true
       - SELF=node1
 
   node2:
@@ -16,6 +18,8 @@ services:
     ports:
       - 9002:8000
     environment:
+      - ARTIFICIALLY_GENERATE_LOAD_FOR_TESTING=true
+      - ALLOW_LOCALHOST_FOR_TESTING=true
       - SELF=node2
 
   node3:
@@ -25,15 +29,17 @@ services:
     ports:
       - 9003:8000
     environment:
+      - ARTIFICIALLY_GENERATE_LOAD_FOR_TESTING=true
+      - ALLOW_LOCALHOST_FOR_TESTING=true
       - SELF=node3
 
   generator:
     build: .
     environment:
       - NETWORK_PASSPHRASE=Standalone Network ; February 2017
-      - HORIZON_SERVER_URL=http://node1:8000
+      - HORIZON_SERVER_URLS=http://node1:8000 http://node2:8000 http://node3:8000 
       - BATCH_SECRET_KEY=SCEXNGMD7TJF3KUYAEVI5MOVPQ7JIMXXVSSQEMB3EIIOJXGSQIIJJRSX
-      - LOGS_NUMBER=10
-      - PEROID=1000
-      - NO_DEVICES=10
+      - LOGS_NUMBER=20
+      - PEROID=0
+      - NO_DEVICES=700
 

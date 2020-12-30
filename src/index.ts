@@ -9,10 +9,11 @@ import {
   TransactionBuilder,
 } from "stellar-sdk";
 import { generate } from "./utils";
+import { chunk } from "lodash";
 
 const {
   NETWORK_PASSPHRASE,
-  HORIZON_SERVER_URL,
+  HORIZON_SERVER_URLS,
   BATCH_SECRET_KEY,
   LOGS_NUMBER,
   PEROID,
@@ -22,8 +23,8 @@ const {
 if (!NETWORK_PASSPHRASE) {
   throw new Error("NETWORK_PASSPHRASE must be defined");
 }
-if (!HORIZON_SERVER_URL) {
-  throw new Error("HORIZON_SERVER_URL must be defined");
+if (!HORIZON_SERVER_URLS) {
+  throw new Error("HORIZON_SERVER_URLS must be defined");
 }
 if (!BATCH_SECRET_KEY) {
   throw new Error("BATCH_SECRET_KEY must be defined");
@@ -39,7 +40,7 @@ if (!PEROID) {
 }
 console.log({
   NETWORK_PASSPHRASE,
-  HORIZON_SERVER_URL,
+  HORIZON_SERVER_URLS,
   BATCH_SECRET_KEY,
   LOGS_NUMBER,
   PEROID,
@@ -49,7 +50,12 @@ console.log({
 
 Config.setAllowHttp(true);
 const masterKeypair = Keypair.master(NETWORK_PASSPHRASE);
-const server = new Server(HORIZON_SERVER_URL, { allowHttp: true });
+const horizonUrls: string[] = HORIZON_SERVER_URLS.split(" ")
+const servers = horizonUrls.map(url => new Server(url, { allowHttp: true}))
+console.log(`Discovered ${servers.length} horizons: ${horizonUrls.join(", ")}`)
+const randomServer =() => servers[Math.floor(Math.random() * servers.length)]
+
+/* const server = new Server(horizonUrls, { allowHttp: true }); */
 console.log({
   masterKeypair: {
     public: masterKeypair.publicKey(),
@@ -58,43 +64,45 @@ console.log({
 });
 
 async function defaultOptions(): Promise<TransactionBuilder.TransactionBuilderOptions> {
-  console.log("Loadiing timebounds");
-  const timebounds = await server.fetchTimebounds(10);
-  console.log("Loaded timebounds");
+  /* console.log("Loadiing timebounds"); */
+  /* const timebounds = await server.fetchTimebounds(10); */
+  /* console.log("Loaded timebounds"); */
   return {
     networkPassphrase: NETWORK_PASSPHRASE,
     fee: "1",
-    timebounds,
   };
 }
 
-async function createAccount(newKeypair: Keypair, masterAccount: Account) {
-  console.log(`masterAccount seqNumber: ${masterAccount.sequenceNumber()}`)
-  const tx = new TransactionBuilder(masterAccount, await defaultOptions())
-    // Create distribution account
-    .addOperation(
+async function createAccounts(newKeypair: Keypair[], masterAccount: Account) {
+  console.log(`masterAccount seqNumber: ${masterAccount.sequenceNumber()}`);
+  const builder = new TransactionBuilder(masterAccount, await defaultOptions());
+  newKeypair.forEach((kp) => {
+    builder.addOperation(
       Operation.createAccount({
-        destination: newKeypair.publicKey(),
+        destination: kp.publicKey(),
         startingBalance: "100",
       })
-    )
-    .build();
+    );
+  });
+  // Create distribution account
+  const tx = builder.setTimeout(0).build();
   tx.sign(masterKeypair);
   console.log("Submitting createAccount transaction");
-  return server.submitTransaction(tx);
+  return randomServer().submitTransaction(tx);
 }
 
+
 async function sendLogTx(
-  eventType: number,
+  deviceId: number,
+  index: number,
+  server: Server,
+  batchAddress: string,
   iotDeviceKeypair: Keypair,
-  batchAddress: string
+  account: Account
 ) {
-  console.log("Loading iot device keypair");
-  const deviceAccount = await server.loadAccount(iotDeviceKeypair.publicKey());
-  console.log("Loaded iot device account");
-  const tx = new TransactionBuilder(deviceAccount, await defaultOptions())
+  const tx = new TransactionBuilder(account, await defaultOptions())
     // Create distribution account
-    .addMemo(Memo.text(`${eventType}`))
+    .addMemo(Memo.text(`${index}${deviceId}`))
     .addOperation(
       Operation.payment({
         destination: batchAddress,
@@ -102,11 +110,16 @@ async function sendLogTx(
         amount: `${1 / 10 ** 7}`,
       })
     )
+    .setTimeout(0)
     .build();
   tx.sign(iotDeviceKeypair);
-  console.log("Submitting log transaction");
+  console.log(`[${format2Digit(index)}${format3Digit(deviceId)}] Submitting log transaction`);
   return server.submitTransaction(tx);
 }
+
+const format3Digit = (text: any) => formatDigit(3)(text)
+const format2Digit = (text: any) => formatDigit(2)(text)
+const formatDigit = (digits: number) => (text: any) => (text).toLocaleString(undefined, {minimumIntegerDigits:digits, useGrouping: false})
 
 const idempotent = async <T>(f: () => Promise<T>): Promise<T | void> => {
   try {
@@ -134,35 +147,50 @@ async function main() {
   let sent = 0;
   try {
     console.log("Loading master account");
-    const masterAccount = await server.loadAccount(masterKeypair.publicKey());
+    const masterAccount = await randomServer().loadAccount(masterKeypair.publicKey());
     console.log("Loaded master account");
-    await idempotent(() => createAccount(batchKeypair, masterAccount));
-
-    for await (const keypair of keypairs) {
-      await idempotent(() => createAccount(keypair, masterAccount));
+    await idempotent(() => createAccounts([batchKeypair], masterAccount));
+    for (const keypairsChunk of chunk(keypairs, 100)) {
+      await idempotent(() => createAccounts(keypairsChunk, masterAccount));
     }
 
-    await wait(5000); // close ledger
+    await wait(1000); // close ledger
+
+    const iotAccounts = await Promise.all(
+      keypairs.map(async (kp, index) => ({
+        deviceId: index,
+        server: randomServer(),
+        keypair: kp,
+        account: await randomServer().loadAccount(kp.publicKey()),
+      }))
+    );
 
     while (sent < Number(LOGS_NUMBER!)) {
       console.log(`Waiting ${Number(PEROID!) / 1000}s`);
       await wait(Number(PEROID!));
       console.log(`Sending batch ${sent}`);
-      await Promise.all(
-        keypairs.map((keypair) =>
-          sendLogTx(sent, keypair, batchKeypair.publicKey())
+      const index = sent;
+      Promise.all(
+        iotAccounts.map(({ deviceId, keypair, server, account }) =>
+          sendLogTx(deviceId, sent, server, batchKeypair.publicKey(), keypair, account)
         )
-      );
+      )
+        .then(() => console.log(`[${index}] Successfully submitted logs tx`))
+        .catch((err) => handleError(err, sent));
       sent += 1;
     }
   } catch (err) {
-    console.error(`[${sent}] Error ${err.message}`);
-    if(err?.response?.data){
-      console.error(err?.response?.data);
-    }
-    if(err?.response?.data){
-      console.error(err?.response?.data?.extras?.result_codes);
-    }
+    handleError(err, sent);
+  }
+}
+
+function handleError(err: any, sent: number) {
+  console.error(`[${sent}] Error ${err.message}`);
+  if (err?.response?.data) {
+    console.error(err?.response?.data);
+  }
+  if (err?.response?.data) {
+    console.error(err?.response?.data?.extras?.result_codes);
   }
 }
 
