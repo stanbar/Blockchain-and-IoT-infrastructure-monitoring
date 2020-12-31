@@ -54,8 +54,8 @@ func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon
 	}
 	response, err := client.SubmitTransaction(signedTx)
 	return &response, err
-
 }
+
 func loadMasterAccount() (*horizon.Account, error) {
 	log.Println("Loading master account")
 	accReq := horizonclient.AccountRequest{AccountID: masterKp.Address()}
