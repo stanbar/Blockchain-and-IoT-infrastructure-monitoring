@@ -6,10 +6,12 @@ import {
   Operation,
   Keypair,
   Server,
+  Transaction,
   TransactionBuilder,
 } from "stellar-sdk";
 import { generate } from "./utils";
 import { chunk } from "lodash";
+import fetch from 'node-fetch'
 
 const {
   NETWORK_PASSPHRASE,
@@ -17,6 +19,7 @@ const {
   BATCH_SECRET_KEY,
   LOGS_NUMBER,
   PEROID,
+  STELLAR_CORE_URLS,
   NO_DEVICES,
   TOTAL_TPS,
 } = process.env;
@@ -35,6 +38,9 @@ if (!NO_DEVICES) {
 if (!LOGS_NUMBER && !TOTAL_TPS) {
   throw new Error("LOGS_NUMBER or TPS must be defined");
 }
+if (!STELLAR_CORE_URLS) {
+  throw new Error("STELLAR_CORE_URLS must be defined");
+}
 if (!PEROID) {
   throw new Error("PEROID must be defined");
 }
@@ -43,6 +49,7 @@ console.log({
   HORIZON_SERVER_URLS,
   BATCH_SECRET_KEY,
   LOGS_NUMBER,
+  STELLAR_CORE_URLS,
   PEROID,
   NO_DEVICES,
   TOTAL_TPS,
@@ -51,9 +58,10 @@ console.log({
 Config.setAllowHttp(true);
 const masterKeypair = Keypair.master(NETWORK_PASSPHRASE);
 const horizonUrls: string[] = HORIZON_SERVER_URLS.split(" ")
+const stellarCoreUrls: string[] = STELLAR_CORE_URLS.split(" ")
 const servers = horizonUrls.map(url => new Server(url, { allowHttp: true}))
-console.log(`Discovered ${servers.length} horizons: ${horizonUrls.join(", ")}`)
 const randomServer =() => servers[Math.floor(Math.random() * servers.length)]
+const randomStellarCoreUrl =() => stellarCoreUrls[Math.floor(Math.random() * stellarCoreUrls.length)]
 
 /* const server = new Server(horizonUrls, { allowHttp: true }); */
 console.log({
@@ -74,7 +82,6 @@ async function defaultOptions(): Promise<TransactionBuilder.TransactionBuilderOp
 }
 
 async function createAccounts(newKeypair: Keypair[], masterAccount: Account) {
-  console.log(`masterAccount seqNumber: ${masterAccount.sequenceNumber()}`);
   const builder = new TransactionBuilder(masterAccount, await defaultOptions());
   newKeypair.forEach((kp) => {
     builder.addOperation(
@@ -95,7 +102,7 @@ async function createAccounts(newKeypair: Keypair[], masterAccount: Account) {
 async function sendLogTx(
   deviceId: number,
   index: number,
-  server: Server,
+  server: string,
   batchAddress: string,
   iotDeviceKeypair: Keypair,
   account: Account
@@ -114,7 +121,15 @@ async function sendLogTx(
     .build();
   tx.sign(iotDeviceKeypair);
   console.log(`[${format2Digit(index)}${format3Digit(deviceId)}] Submitting log transaction`);
-  return server.submitTransaction(tx);
+  return sendTxToStellarCore(tx, server)
+  /* return server.submitTransaction(tx); */
+}
+
+function sendTxToStellarCore(tx: Transaction, host : string) {
+  const queryParams = new URLSearchParams({ blob: tx.toXDR() })
+  const url = `${host}/tx?${queryParams}`
+  console.log(url)
+  return fetch(url).then(res => res.json())
 }
 
 const format3Digit = (text: any) => formatDigit(3)(text)
@@ -159,7 +174,7 @@ async function main() {
     const iotAccounts = await Promise.all(
       keypairs.map(async (kp, index) => ({
         deviceId: index,
-        server: randomServer(),
+        server: randomStellarCoreUrl(),
         keypair: kp,
         account: await randomServer().loadAccount(kp.publicKey()),
       }))
@@ -187,10 +202,10 @@ async function main() {
 function handleError(err: any, sent: number) {
   console.error(`[${sent}] Error ${err.message}`);
   if (err?.response?.data) {
-    console.error(err?.response?.data);
-  }
-  if (err?.response?.data) {
-    console.error(err?.response?.data?.extras?.result_codes);
+    console.error(err.response.data);
+    console.error(err.response.data.extras?.result_codes);
+  } else if(err?.response){
+    console.error(err.response)
   }
 }
 
