@@ -2,11 +2,11 @@ name: Go staticcheck
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     paths:
       - "generator-go/**"
   pull_request:
-    branches: [master]
+    branches: [main]
     paths:
       - "generator-go/**"
   workflow_dispatch:
