@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 	"math/rand"
-	"os"
+	"strconv"
 	"strings"
 
 	"github.com/stellar/go/clients/horizonclient"
@@ -16,41 +16,65 @@ import (
 
 var networkPassphrase = utils.MustGetenv("NETWORK_PASSPHRASE")
 var horizonServerUrls = utils.MustGetenv("HORIZON_SERVER_URLS")
+var noDevices, _ = strconv.Atoi(utils.MustGetenv("NO_DEVICES"))
 var urls = strings.Split(horizonServerUrls, " ")
-var client = horizonclient.Client{HorizonURL: urls[rand.Intn(len(urls))]}
+var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
+var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
 
-func createAccounts(kp *keypair.Full, signer *keypair.Full, sourceAcc *horizon.Account, client horizonclient.Client) {
-	networkPassphrase, present := os.LookupEnv("NETWORK_PASSPHRASE")
-	if present != true {
-		log.Panicln("NETWORK_PASSPHRASE must be set")
+func randomServer() *horizonclient.Client {
+	return &horizonclient.Client{
+		HorizonURL: urls[rand.Intn(len(urls))],
 	}
-	createAccountOp := txnbuild.CreateAccount{
-		Destination: kp.Address(),
-		Amount:      "10",
+}
+
+func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon.Account, client *horizonclient.Client) (*horizon.Transaction, error) {
+	createAccountOps := make([]txnbuild.Operation, len(kp))
+
+	for i, v := range kp {
+		createAccountOps[i] = &txnbuild.CreateAccount{
+			Destination: v.Address(),
+			Amount:      "10",
+		}
 	}
 	txParams := txnbuild.TransactionParams{
 		SourceAccount:        sourceAcc,
 		IncrementSequenceNum: true,
-		Operations:           []txnbuild.Operation{&createAccountOp},
+		Operations:           createAccountOps,
 		Timebounds:           txnbuild.NewTimeout(0),
 		BaseFee:              1,
 	}
-	tx, _ := txnbuild.NewTransaction(txParams)
-	signedTx, _ := tx.Sign(networkPassphrase, signer)
-	client.SubmitTransaction(signedTx)
+
+	tx, err := txnbuild.NewTransaction(txParams)
+	if err != nil {
+		return nil, err
+	}
+	signedTx, err := tx.Sign(networkPassphrase, signer)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.SubmitTransaction(signedTx)
+	return &response, err
+
+}
+func loadMasterAccount() (*horizon.Account, error) {
+	log.Println("Loading master account")
+	accReq := horizonclient.AccountRequest{AccountID: masterKp.Address()}
+	masterAccount, err := randomServer().AccountDetail(accReq)
+	if err != nil {
+		return nil, err
+	}
+	log.Println("Loaded master account")
+	return &masterAccount, nil
 }
 
 func main() {
-	pair, err := keypair.Random()
+	keypairs := make([]*keypair.Full, noDevices)
+	for i := 0; i < noDevices; i++ {
+		keypairs[i] = keypair.MustRandom()
+	}
+	masterAccount, err := loadMasterAccount()
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	masterKp, err := keypair.FromRawSeed(network.ID(networkPassphrase))
-	accReq := horizonclient.AccountRequest{AccountID: pair.Address()}
-	masterAccount, err := client.AccountDetail(accReq)
-	if err != nil {
-		log.Fatal(err)
-	}
-	createAccounts(pair, masterKp, &masterAccount, client)
+	createAccounts([]*keypair.Full{batchKeypair}, masterKp, masterAccount, randomServer())
 }
