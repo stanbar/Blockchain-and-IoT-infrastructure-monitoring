@@ -15,8 +15,11 @@ import (
 	"github.com/stellot/stellot-iot/generator-go/utils"
 )
 
+var stellarCoreUrls = utils.MustGetenv("STELLAR_CORE_URLS")
+var stellarCoreUrlsSlice = strings.Split(stellarCoreUrls, " ")
 var networkPassphrase = utils.MustGetenv("NETWORK_PASSPHRASE")
 var horizonServerUrls = utils.MustGetenv("HORIZON_SERVER_URLS")
+var logsNumber, _ = strconv.Atoi(utils.MustGetenv("LOGS_NUMBER"))
 var noDevices, _ = strconv.Atoi(utils.MustGetenv("NO_DEVICES"))
 var urls = strings.Split(horizonServerUrls, " ")
 var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
@@ -26,6 +29,10 @@ func randomServer() *horizonclient.Client {
 	return &horizonclient.Client{
 		HorizonURL: urls[rand.Intn(len(urls))],
 	}
+}
+
+func randomStellarCoreUrl() string {
+	return stellarCoreUrlsSlice[rand.Intn(len(stellarCoreUrlsSlice))]
 }
 
 func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon.Account, client *horizonclient.Client) (*horizon.Transaction, error) {
@@ -66,7 +73,6 @@ func sendLogTx(
 	iotDeviceKeypair *keypair.Full,
 	account *horizon.Account,
 ) (*http.Response, error) {
-
 	txParams := txnbuild.TransactionParams{
 		SourceAccount:        account,
 		IncrementSequenceNum: true,
@@ -107,36 +113,64 @@ func sendLogTx(
 	return response, err
 }
 
-func loadMasterAccount() (*horizon.Account, error) {
-	log.Println("Loading master account")
-	accReq := horizonclient.AccountRequest{AccountID: masterKp.Address()}
+func loadAccount(accountId string) (*horizon.Account, error) {
+	accReq := horizonclient.AccountRequest{AccountID: accountId}
 	masterAccount, err := randomServer().AccountDetail(accReq)
 	if err != nil {
 		return nil, err
 	}
-	log.Println("Loaded master account")
 	return &masterAccount, nil
+}
+
+type LoadAccountResult struct {
+	Account *horizon.Account
+	Error   error
+}
+
+func loadAccountChan(accountId string) chan LoadAccountResult {
+	ch := make(chan LoadAccountResult)
+	accReq := horizonclient.AccountRequest{AccountID: accountId}
+	go func() {
+		log.Println("Sending account details request")
+		masterAccount, err := randomServer().AccountDetail(accReq)
+		log.Println("Response received")
+		if err != nil {
+			ch <- LoadAccountResult{Account: nil, Error: err}
+		} else {
+			ch <- LoadAccountResult{Account: &masterAccount, Error: nil}
+		}
+	}()
+	return ch
+}
+
+func loadMasterAccount() (*horizon.Account, error) {
+	return loadAccount(masterKp.Address())
 }
 
 func chunkSlice(slice []*keypair.Full, chunkSize int) [][]*keypair.Full {
 	var chunks [][]*keypair.Full
-	for i := 0; i < len(slice); i += chunkSize {
-		end := i + chunkSize
-		if end > len(slice) {
-			end = len(slice)
+	for {
+		if len(slice) == 0 {
+			break
 		}
-		chunks = append(chunks, slice[i:end])
+		// necessary check to avoid slicing beyond
+		// slice capacity
+		if len(slice) < chunkSize {
+			chunkSize = len(slice)
+		}
+		chunks = append(chunks, slice[0:chunkSize])
+		slice = slice[chunkSize:]
 	}
 	return chunks
 }
 
 type SendLog struct {
-	deviceId int
-	index int
-	server string
-	batchAddress *keypair.Full
-	iotDeviceKeypair *keypair.Full
-	account *horizon.Account
+	deviceId      int
+	index         int
+	server        string
+	batchAddress  *keypair.Full
+	deviceKeypair *keypair.Full
+	account       *horizon.Account
 }
 
 func main() {
@@ -166,23 +200,35 @@ func main() {
 		}
 	}
 
-	sendLogs := make([]*SendLog, len(keypairs))
-	for i := 0; i < len(keypairs); i++ {
-		sendLogs[i] = SendLog{
-			deviceId : i,
-			server: randomStellarCoreUrl(),
-			batchAddress: batchKeypair,
-			iotDeviceKeypair: keypairs[i],
-			account: *horizon.Account
-		}
-		keypairs[i] = keypair.MustRandom()
+	channels := make([]chan LoadAccountResult, len(keypairs))
+	for i := 0; i < len(channels); i++ {
+		channels[i] = loadAccountChan(keypairs[i].Address())
 	}
 
-	iotAccounts := keypairs.map(async (kp, index) => ({
-			deviceId: index,
-			server: randomStellarCoreUrl(),
-			keypair: kp,
-			account: await randomServer().loadAccount(kp.publicKey()),
-		}))
+	sendLogs := make([]SendLog, len(keypairs))
+	for i := 0; i < len(keypairs); i++ {
+		log.Printf("Waiting for channel return %d", i)
+		result := <-channels[i]
+		log.Printf("Response received %d", i)
+		if result.Error != nil {
+			log.Fatal(result.Error)
+			hError := result.Error.(*horizonclient.Error)
+			log.Println("Error submitting transaction:", hError.Problem.Extras["result_codes"])
+		}
+		sendLogs[i] = SendLog{
+			deviceId:      i,
+			server:        randomStellarCoreUrl(),
+			batchAddress:  batchKeypair,
+			deviceKeypair: keypairs[i],
+			account:       result.Account,
+		}
+	}
 
+	for i := 0; i < logsNumber; i++ {
+		for j := 0; j < len(keypairs); j++ {
+			params := sendLogs[i]
+			log.Printf("Sending log tx %d%d", i, j)
+			sendLogTx(params.deviceId, i, params.server, params.batchAddress, params.deviceKeypair, params.account)
+		}
+	}
 }
