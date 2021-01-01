@@ -33,8 +33,19 @@ services:
       - ALLOW_LOCALHOST_FOR_TESTING=true
       - SELF=node3
 
-  generator:
-    build: generator-nodejs
+#   generator:
+#     build: generator-nodejs
+#     environment:
+#       - NETWORK_PASSPHRASE=Standalone Network ; February 2017
+#       - HORIZON_SERVER_URLS=http://node1:8000 http://node2:8000 http://node3:8000 
+#       - STELLAR_CORE_URLS=http://node1:11626 http://node2:11626 http://node3:11626
+#       - BATCH_SECRET_KEY=SCEXNGMD7TJF3KUYAEVI5MOVPQ7JIMXXVSSQEMB3EIIOJXGSQIIJJRSX
+#       - LOGS_NUMBER=20
+#       - PEROID=0
+#       - NO_DEVICES=500
+
+  go-generator:
+    build: generator-go
     environment:
       - NETWORK_PASSPHRASE=Standalone Network ; February 2017
       - HORIZON_SERVER_URLS=http://node1:8000 http://node2:8000 http://node3:8000 
@@ -43,4 +54,3 @@ services:
       - LOGS_NUMBER=20
       - PEROID=0
       - NO_DEVICES=500
-
