@@ -1,11 +1,13 @@
 package main
 
 import (
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/keypair"
@@ -21,6 +23,7 @@ var networkPassphrase = utils.MustGetenv("NETWORK_PASSPHRASE")
 var horizonServerUrls = utils.MustGetenv("HORIZON_SERVER_URLS")
 var logsNumber, _ = strconv.Atoi(utils.MustGetenv("LOGS_NUMBER"))
 var noDevices, _ = strconv.Atoi(utils.MustGetenv("NO_DEVICES"))
+var peroid, _ = strconv.Atoi(utils.MustGetenv("PEROID"))
 var urls = strings.Split(horizonServerUrls, " ")
 var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
 var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
@@ -48,7 +51,7 @@ func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon
 		SourceAccount:        sourceAcc,
 		IncrementSequenceNum: true,
 		Operations:           createAccountOps,
-		Timebounds:           txnbuild.NewTimeout(20),
+		Timebounds:           txnbuild.NewTimeout(120),
 		BaseFee:              100,
 	}
 
@@ -65,6 +68,11 @@ func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon
 	return &response, err
 }
 
+type SendLogResult struct {
+	Response *http.Response
+	Error    error
+}
+
 func sendLogTx(
 	deviceId int,
 	index int,
@@ -72,45 +80,52 @@ func sendLogTx(
 	batchAddress *keypair.Full,
 	iotDeviceKeypair *keypair.Full,
 	account *horizon.Account,
-) (*http.Response, error) {
-	txParams := txnbuild.TransactionParams{
-		SourceAccount:        account,
-		IncrementSequenceNum: true,
-		Operations: []txnbuild.Operation{&txnbuild.Payment{
-			Destination: batchKeypair.Address(),
-			Amount:      "10",
-		}},
-		Timebounds: txnbuild.NewTimeout(20),
-		BaseFee:    100,
-	}
+) chan SendLogResult {
+	ch := make(chan SendLogResult)
+	go func() {
+		txParams := txnbuild.TransactionParams{
+			SourceAccount:        account,
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{&txnbuild.Payment{
+				Destination: batchKeypair.Address(),
+				Asset:       txnbuild.NativeAsset{},
+				Amount:      "0.0000001",
+			}},
+			Memo:       txnbuild.MemoText(strconv.Itoa(index) + strconv.Itoa(deviceId)),
+			Timebounds: txnbuild.NewTimeout(20),
+			BaseFee:    100,
+		}
 
-	tx, err := txnbuild.NewTransaction(txParams)
-	if err != nil {
-		return nil, err
-	}
-	signedTx, err := tx.Sign(networkPassphrase, iotDeviceKeypair)
-	if err != nil {
-		return nil, err
-	}
-	xdr, err := signedTx.Base64()
-	if err != nil {
-		return nil, err
-	}
-	log.Println("Submitting sendLogTx transaction")
-	req, err := http.NewRequest("GET", server, nil)
-	if err != nil {
-		log.Println(err)
-	}
-	q := req.URL.Query()
-	q.Add("blob", xdr)
-	req.URL.RawQuery = q.Encode()
-	log.Println(req.URL.String())
-	response, err := http.Get(req.URL.String())
-	if err != nil {
-		log.Println(err)
-	}
-	log.Println(response)
-	return response, err
+		tx, err := txnbuild.NewTransaction(txParams)
+		if err != nil {
+			ch <- SendLogResult{Response: nil, Error: err}
+			return
+		}
+		signedTx, err := tx.Sign(networkPassphrase, iotDeviceKeypair)
+		if err != nil {
+			ch <- SendLogResult{Response: nil, Error: err}
+			return
+		}
+		xdr, err := signedTx.Base64()
+		log.Println("xdr", xdr)
+		if err != nil {
+			ch <- SendLogResult{Response: nil, Error: err}
+			return
+		}
+		log.Println("Submitting sendLogTx transaction")
+		req, err := http.NewRequest("GET", server+"/tx", nil)
+		if err != nil {
+			ch <- SendLogResult{Response: nil, Error: err}
+			return
+		}
+		q := req.URL.Query()
+		q.Add("blob", xdr)
+		req.URL.RawQuery = q.Encode()
+		log.Println(req.URL.String())
+		response, err := http.Get(req.URL.String())
+		ch <- SendLogResult{Response: response, Error: err}
+	}()
+	return ch
 }
 
 func loadAccount(accountId string) (*horizon.Account, error) {
@@ -224,11 +239,29 @@ func main() {
 		}
 	}
 
+	resultChans := make([]chan SendLogResult, logsNumber*len(keypairs))
 	for i := 0; i < logsNumber; i++ {
+		time.Sleep(time.Duration(peroid) * time.Millisecond)
 		for j := 0; j < len(keypairs); j++ {
-			params := sendLogs[i]
-			log.Printf("Sending log tx %d%d", i, j)
-			sendLogTx(params.deviceId, i, params.server, params.batchAddress, params.deviceKeypair, params.account)
+			// TODO introduce throttling by TPS not batch
+			params := sendLogs[j]
+			log.Printf("Sending log tx %d%d index: %d", i, j, i*len(keypairs)+j)
+			resultChans[i*len(keypairs)+j] = sendLogTx(params.deviceId, i, params.server, params.batchAddress, params.deviceKeypair, params.account)
+		}
+	}
+
+	for i := 0; i < logsNumber*len(keypairs); i++ {
+		result := <-resultChans[i]
+		if result.Error != nil {
+			log.Printf("Error sending log %d %+v\n", i, result.Error)
+		} else if result.Response != nil {
+			defer result.Response.Body.Close()
+			body, err := ioutil.ReadAll(result.Response.Body)
+			if err != nil {
+				log.Printf("Error reading body of log %d %v", i, err)
+			} else {
+				log.Printf("Success sending log %d %s", i, string(body))
+			}
 		}
 	}
 }

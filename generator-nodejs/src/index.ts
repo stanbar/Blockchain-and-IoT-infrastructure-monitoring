@@ -126,6 +126,7 @@ async function sendLogTx(
 }
 
 function sendTxToStellarCore(tx: Transaction, host : string) {
+  console.log({xdr: tx.toXDR()})
   const queryParams = new URLSearchParams({ blob: tx.toXDR() })
   const url = `${host}/tx?${queryParams}`
   console.log(url)
