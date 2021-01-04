@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -21,17 +22,28 @@ var stellarCoreUrls = utils.MustGetenv("STELLAR_CORE_URLS")
 var stellarCoreUrlsSlice = strings.Split(stellarCoreUrls, " ")
 var networkPassphrase = utils.MustGetenv("NETWORK_PASSPHRASE")
 var horizonServerUrls = utils.MustGetenv("HORIZON_SERVER_URLS")
+var horizonServerUrlsSlice = strings.Split(horizonServerUrls, " ")
 var logsNumber, _ = strconv.Atoi(utils.MustGetenv("LOGS_NUMBER"))
 var noDevices, _ = strconv.Atoi(utils.MustGetenv("NO_DEVICES"))
 var peroid, _ = strconv.Atoi(utils.MustGetenv("PEROID"))
-var urls = strings.Split(horizonServerUrls, " ")
+var sendTxTo = utils.MustGetenv("SEND_TX_TO")
+var tps, _ = strconv.Atoi(utils.MustGetenv("TPS"))
 var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
 var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
+var horizonServers = createHorizonServers()
 
-func randomServer() *horizonclient.Client {
-	return &horizonclient.Client{
-		HorizonURL: urls[rand.Intn(len(urls))],
+func createHorizonServers() []*horizonclient.Client {
+	horizons := make([]*horizonclient.Client, len(horizonServerUrlsSlice))
+	for i, v := range horizonServerUrlsSlice {
+		horizons[i] = &horizonclient.Client{
+			HorizonURL: v,
+		}
 	}
+	return horizons
+}
+
+func randomHorizon() *horizonclient.Client {
+	return horizonServers[rand.Intn(len(horizonServers))]
 }
 
 func randomStellarCoreUrl() string {
@@ -69,8 +81,9 @@ func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon
 }
 
 type SendLogResult struct {
-	Response *http.Response
-	Error    error
+	HTTPResponse    *http.Response
+	HorizonResponse *horizon.Transaction
+	Error           error
 }
 
 func sendLogTx(
@@ -80,6 +93,7 @@ func sendLogTx(
 	batchAddress *keypair.Full,
 	iotDeviceKeypair *keypair.Full,
 	account *horizon.Account,
+	client *horizonclient.Client,
 ) chan SendLogResult {
 	ch := make(chan SendLogResult)
 	go func() {
@@ -98,39 +112,59 @@ func sendLogTx(
 
 		tx, err := txnbuild.NewTransaction(txParams)
 		if err != nil {
-			ch <- SendLogResult{Response: nil, Error: err}
+			ch <- SendLogResult{Error: err}
 			return
 		}
 		signedTx, err := tx.Sign(networkPassphrase, iotDeviceKeypair)
 		if err != nil {
-			ch <- SendLogResult{Response: nil, Error: err}
+			ch <- SendLogResult{Error: err}
 			return
 		}
 		xdr, err := signedTx.Base64()
 		log.Println("xdr", xdr)
 		if err != nil {
-			ch <- SendLogResult{Response: nil, Error: err}
+			ch <- SendLogResult{Error: err}
 			return
 		}
-		log.Println("Submitting sendLogTx transaction")
-		req, err := http.NewRequest("GET", server+"/tx", nil)
-		if err != nil {
-			ch <- SendLogResult{Response: nil, Error: err}
-			return
+
+		if sendTxTo == "horizon" {
+			resp, err := client.SubmitTransactionXDR(xdr)
+			if err != nil {
+				hError := err.(*horizonclient.Error)
+				if hError.Problem.Extras != nil {
+					if hError.Problem.Extras["result_codes"] != nil {
+						log.Println("Error submitting sendLogTx to horizon", hError.Problem.Extras["result_codes"])
+					} else {
+						log.Println("Error submitting sendLogTx to horizon", hError.Problem.Extras)
+					}
+				}
+				ch <- SendLogResult{Error: err}
+				return
+			}
+			ch <- SendLogResult{HorizonResponse: &resp, Error: err}
+		} else if sendTxTo == "stellar-core" {
+			log.Println("Submitting sendLogTx transaction")
+			req, err := http.NewRequest("GET", server+"/tx", nil)
+			if err != nil {
+				ch <- SendLogResult{Error: err}
+				return
+			}
+			q := req.URL.Query()
+			q.Add("blob", xdr)
+			req.URL.RawQuery = q.Encode()
+			log.Println(req.URL.String())
+			response, err := http.Get(req.URL.String())
+			ch <- SendLogResult{HTTPResponse: response, Error: err}
+		} else {
+			ch <- SendLogResult{Error: errors.New("Unsupported sendTxTo")}
 		}
-		q := req.URL.Query()
-		q.Add("blob", xdr)
-		req.URL.RawQuery = q.Encode()
-		log.Println(req.URL.String())
-		response, err := http.Get(req.URL.String())
-		ch <- SendLogResult{Response: response, Error: err}
 	}()
 	return ch
 }
 
 func loadAccount(accountId string) (*horizon.Account, error) {
 	accReq := horizonclient.AccountRequest{AccountID: accountId}
-	masterAccount, err := randomServer().AccountDetail(accReq)
+	masterAccount, err := randomHorizon().AccountDetail(accReq)
 	if err != nil {
 		return nil, err
 	}
@@ -147,8 +181,7 @@ func loadAccountChan(accountId string) chan LoadAccountResult {
 	accReq := horizonclient.AccountRequest{AccountID: accountId}
 	go func() {
 		log.Println("Sending account details request")
-		masterAccount, err := randomServer().AccountDetail(accReq)
-		log.Println("Response received")
+		masterAccount, err := randomHorizon().AccountDetail(accReq)
 		if err != nil {
 			ch <- LoadAccountResult{Account: nil, Error: err}
 		} else {
@@ -183,6 +216,7 @@ type SendLog struct {
 	deviceId      int
 	index         int
 	server        string
+	horizon       *horizonclient.Client
 	batchAddress  *keypair.Full
 	deviceKeypair *keypair.Full
 	account       *horizon.Account
@@ -197,7 +231,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	res, err := createAccounts([]*keypair.Full{batchKeypair}, masterKp, masterAccount, randomServer())
+	res, err := createAccounts([]*keypair.Full{batchKeypair}, masterKp, masterAccount, randomHorizon())
 	if err != nil {
 		hError := err.(*horizonclient.Error)
 		log.Println("Error submitting transaction:", hError.Problem.Extras["result_codes"])
@@ -208,7 +242,7 @@ func main() {
 
 	chunks := chunkSlice(keypairs, 100)
 	for _, chunk := range chunks {
-		_, err := createAccounts(chunk, masterKp, masterAccount, randomServer())
+		_, err := createAccounts(chunk, masterKp, masterAccount, randomHorizon())
 		if err != nil {
 			hError := err.(*horizonclient.Error)
 			log.Fatal("Error submitting transaction:", hError.Problem.Extras)
@@ -222,17 +256,16 @@ func main() {
 
 	sendLogs := make([]SendLog, len(keypairs))
 	for i := 0; i < len(keypairs); i++ {
-		log.Printf("Waiting for channel return %d", i)
 		result := <-channels[i]
-		log.Printf("Response received %d", i)
 		if result.Error != nil {
-			log.Fatal(result.Error)
+			log.Println(result.Error)
 			hError := result.Error.(*horizonclient.Error)
 			log.Println("Error submitting transaction:", hError.Problem.Extras["result_codes"])
 		}
 		sendLogs[i] = SendLog{
 			deviceId:      i,
 			server:        randomStellarCoreUrl(),
+			horizon:       randomHorizon(),
 			batchAddress:  batchKeypair,
 			deviceKeypair: keypairs[i],
 			account:       result.Account,
@@ -241,12 +274,12 @@ func main() {
 
 	resultChans := make([]chan SendLogResult, logsNumber*len(keypairs))
 	for i := 0; i < logsNumber; i++ {
-		time.Sleep(time.Duration(peroid) * time.Millisecond)
 		for j := 0; j < len(keypairs); j++ {
-			// TODO introduce throttling by TPS not batch
+			log.Println("sleep", time.Duration(1000.0/tps)*time.Millisecond)
+			time.Sleep(time.Duration(1000.0/tps) * time.Millisecond)
 			params := sendLogs[j]
 			log.Printf("Sending log tx %d%d index: %d", i, j, i*len(keypairs)+j)
-			resultChans[i*len(keypairs)+j] = sendLogTx(params.deviceId, i, params.server, params.batchAddress, params.deviceKeypair, params.account)
+			resultChans[i*len(keypairs)+j] = sendLogTx(params.deviceId, i, params.server, params.batchAddress, params.deviceKeypair, params.account, params.horizon)
 		}
 	}
 
@@ -254,14 +287,15 @@ func main() {
 		result := <-resultChans[i]
 		if result.Error != nil {
 			log.Printf("Error sending log %d %+v\n", i, result.Error)
-		} else if result.Response != nil {
-			defer result.Response.Body.Close()
-			body, err := ioutil.ReadAll(result.Response.Body)
+		} else if result.HTTPResponse != nil {
+			defer result.HTTPResponse.Body.Close()
+			body, err := ioutil.ReadAll(result.HTTPResponse.Body)
 			if err != nil {
 				log.Printf("Error reading body of log %d %v", i, err)
 			} else {
 				log.Printf("Success sending log %d %s", i, string(body))
 			}
+		} else if result.HorizonResponse != nil {
 		}
 	}
 }

@@ -5,6 +5,7 @@ services:
     env_file: stellar-core.env
     command: "--privnet"
     ports:
+      - 5432:5432
       - 9001:8000
     environment:
       - ARTIFICIALLY_GENERATE_LOAD_FOR_TESTING=true

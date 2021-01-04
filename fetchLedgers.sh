@@ -5,7 +5,7 @@ VERBOSE=$2
 echo "${VERBOSE}"
 if [ -z "${VERBOSE}" ]
 then
-  QUERY="[._embedded.records[] | {successful_transaction_count}[]]"
+  QUERY="[._embedded.records[] | {sequence, successful_transaction_count}[]]"
 else
   QUERY="[._embedded.records[] | {successful_transaction_count, failed_transaction_count}]"
 fi
