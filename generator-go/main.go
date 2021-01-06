@@ -231,7 +231,6 @@ func loadAccountChan(accountId string) chan LoadAccountResult {
 	ch := make(chan LoadAccountResult)
 	accReq := horizonclient.AccountRequest{AccountID: accountId}
 	go func() {
-		log.Println("Sending account details request")
 		masterAccount, err := helpers.RandomHorizon().AccountDetail(accReq)
 		if err != nil {
 			ch <- LoadAccountResult{Account: nil, Error: err}
