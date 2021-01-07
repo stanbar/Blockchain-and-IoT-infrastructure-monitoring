@@ -8,7 +8,7 @@ const kWorkerFreedEvent = Symbol('kWorkerFreedEvent');
 
 class WorkerPoolTaskInfo extends AsyncResource {
 
-  callback : (err: any, result: any) => any;
+  callback : (err: Error, result: any) => any;
 
   constructor(callback: (err: Error, result: any) => any) {
     super('WorkerPoolTaskInfo');

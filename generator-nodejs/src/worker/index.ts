@@ -1,5 +1,11 @@
-import WorkerPool from "./worker_pool";
+import { StaticPool } from "node-worker-threads-pool";
 
-const pool = new WorkerPool(os.cpus().length);
+const staticPool = new StaticPool({
+  size: 4,
+  task: (n) => n + 1,
+});
 
-const worker = new Worker('./sendTx.js')
+staticPool.exec(1).then((result) => {
+  console.log("result from thread pool:", result); // result will be 2.
+});
+
