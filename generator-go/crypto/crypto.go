@@ -4,22 +4,21 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/sha512"
-	"golang.org/x/crypto/curve25519"
+	"encoding/hex"
+	"filippo.io/edwards25519"
+	"log"
 )
 
-func DeriveDHKey(privKey ed25519.PrivateKey, pubKey ed25519.PublicKey) ([]byte, error) {
+func DeriveDHKey(privKey ed25519.PrivateKey, pubKey ed25519.PublicKey) []byte {
 	var pub [32]byte
 
 	copy(pub[:], pubKey[:32])
 
 	// From https://cr.yp.to/ecdh.html
 	scalar := GetScalar(privKey)
-	secret, err := ScalarMult(scalar[:], pubKey)
-	if err != nil {
-		return nil, err
-	}
+	secret := ScalarMult(scalar[:], pubKey)
 	result := sha256.Sum256(secret[:])
-	return result[:], err
+	return result[:]
 }
 
 func GetScalar(privKey []byte) [32]byte {
@@ -41,6 +40,15 @@ func BytesOperations(bytes *[64]byte) {
 	bytes[31] |= 0x40
 }
 
-func ScalarMult(scalar, point []byte) ([]byte, error) {
-	return curve25519.X25519(scalar, point)
+func ScalarMult(scalar, point []byte) []byte {
+	uniformBytes := make([]byte, 64)
+	copy(uniformBytes, scalar)
+	log.Println("before: ", hex.EncodeToString(uniformBytes))
+	scalarStruct := (&edwards25519.Scalar{}).SetUniformBytes(uniformBytes)
+	log.Println("after: ", hex.EncodeToString(scalarStruct.Bytes()))
+	pointResult, err := (&edwards25519.Point{}).SetBytes(point)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return pointResult.ScalarMult(scalarStruct, pointResult).Bytes()
 }

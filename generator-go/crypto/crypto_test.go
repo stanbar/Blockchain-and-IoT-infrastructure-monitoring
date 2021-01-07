@@ -56,7 +56,7 @@ func TestDeriveDHKey(t *testing.T) {
 		t.Error("Get Scalar does not match")
 	}
 
-	secret, err := ScalarMult(hash[:32], aPub)
+	secret := ScalarMult(hash[:32], aPub)
 	if err != nil {
 		t.Error("Error", err)
 	}
@@ -66,14 +66,8 @@ func TestDeriveDHKey(t *testing.T) {
 		t.Error("Multiplication failed")
 	}
 
-	derivedByA, err := DeriveDHKey(aPriv, bPub)
-	if err != nil {
-		t.Error(err)
-	}
-	derivedByB, err := DeriveDHKey(bPriv, aPub)
-	if err != nil {
-		t.Error(err)
-	}
+	derivedByA := DeriveDHKey(aPriv, bPub)
+	derivedByB := DeriveDHKey(bPriv, aPub)
 	derivedByAString := hex.EncodeToString(derivedByA)
 	derivedByBString := hex.EncodeToString(derivedByB)
 	log.Println("Derived by A: ", derivedByAString)
