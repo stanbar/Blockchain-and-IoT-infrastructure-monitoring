@@ -18,14 +18,14 @@
   "homepage": "https://github.com/stellot/stellot-iot#readme",
   "dependencies": {
     "lodash": "^4.17.20",
-    "stellar-sdk": "^7.0.0"
+    "node-fetch": "^2.6.1",
+    "stellar-sdk": "^7.0.0",
+    "ts-node": "^9.1.1"
   },
   "devDependencies": {
     "@types/lodash": "^4.14.166",
     "@types/node": "^14.14.14",
     "@types/node-fetch": "^2.5.7",
-    "node-fetch": "^2.6.1",
-    "ts-node": "^9.1.1",
     "typescript": "^4.1.3"
   }
 }
