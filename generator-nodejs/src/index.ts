@@ -1,18 +1,17 @@
 import {
   Account,
-  Asset,
-  Memo,
   Config,
   Operation,
   Keypair,
   Server,
-  Transaction,
   TransactionBuilder,
 } from "stellar-sdk";
+import os from "os";
 import { generate } from "./utils";
 import { chunk } from "lodash";
-import fetch from "node-fetch";
-import { StaticPool } from "node-worker-threads-pool";
+import path from 'path';
+import { SendLogTx, successMessage, defaultOptions } from "./common";
+import WorkerPool from "./worker_pool";
 
 const {
   NETWORK_PASSPHRASE,
@@ -68,10 +67,7 @@ const randomServer = () => servers[Math.floor(Math.random() * servers.length)];
 const randomStellarCoreUrl = () =>
   stellarCoreUrls[Math.floor(Math.random() * stellarCoreUrls.length)];
 
-const sendLogTxPool = new StaticPool({
-  size: 4,
-  task: (params: SendLogTx) => sendLogTx(params),
-});
+const pool = new WorkerPool(os.cpus().length * 2);
 
 /* const server = new Server(horizonUrls, { allowHttp: true }); */
 console.log({
@@ -81,20 +77,8 @@ console.log({
   },
 });
 
-async function defaultOptions(): Promise<
-  TransactionBuilder.TransactionBuilderOptions
-> {
-  /* console.log("Loadiing timebounds"); */
-  /* const timebounds = await server.fetchTimebounds(10); */
-  /* console.log("Loaded timebounds"); */
-  return {
-    networkPassphrase: NETWORK_PASSPHRASE,
-    fee: "1",
-  };
-}
-
 async function createAccounts(newKeypair: Keypair[], masterAccount: Account) {
-  const builder = new TransactionBuilder(masterAccount, await defaultOptions());
+  const builder = new TransactionBuilder(masterAccount, defaultOptions());
   newKeypair.forEach((kp) => {
     builder.addOperation(
       Operation.createAccount({
@@ -109,62 +93,6 @@ async function createAccounts(newKeypair: Keypair[], masterAccount: Account) {
   console.log("Submitting createAccount transaction");
   return randomServer().submitTransaction(tx);
 }
-
-type SendLogTx = {
-  deviceId: number;
-  index: number;
-  server: string;
-  batchAddress: string;
-  deviceKeypair: Keypair;
-  account: Account;
-};
-
-async function sendLogTx({
-  deviceId,
-  index,
-  server,
-  batchAddress,
-  deviceKeypair,
-  account,
-}: SendLogTx) {
-  const tx = new TransactionBuilder(account, await defaultOptions())
-    // Create distribution account
-    .addMemo(Memo.text(`${index}${deviceId}`))
-    .addOperation(
-      Operation.payment({
-        destination: batchAddress,
-        asset: Asset.native(),
-        amount: `${1 / 10 ** 7}`,
-      })
-    )
-    .setTimeout(0)
-    .build();
-  tx.sign(deviceKeypair);
-  console.log(
-    `[${format2Digit(index)}${format3Digit(
-      deviceId
-    )}] Submitting log transaction`
-  );
-  return sendTxToStellarCore(tx, server);
-  /* return server.submitTransaction(tx); */
-}
-
-async function sendTxToStellarCore(tx: Transaction, host: string) {
-  console.log({ xdr: tx.toXDR() });
-  const queryParams = new URLSearchParams({ blob: tx.toXDR() });
-  const url = `${host}/tx?${queryParams}`;
-  console.log(url);
-  const res = await fetch(url);
-  return res.json();
-}
-
-const format3Digit = (text: any) => formatDigit(3)(text);
-const format2Digit = (text: any) => formatDigit(2)(text);
-const formatDigit = (digits: number) => (text: any) =>
-  text.toLocaleString(undefined, {
-    minimumIntegerDigits: digits,
-    useGrouping: false,
-  });
 
 const idempotent = async <T>(f: () => Promise<T>): Promise<T | void> => {
   try {
@@ -203,25 +131,49 @@ async function main() {
 
     await wait(1000); // close ledger
 
-    const params: Omit<SendLogTx, "index">[] = await Promise.all(
-      keypairs.map(async (kp, index) => ({
-        deviceId: index,
-        server: randomStellarCoreUrl(),
-        batchAddress: batchKeypair.publicKey(),
-        deviceKeypair: kp,
-        account: await randomServer().loadAccount(kp.publicKey()),
-      }))
+    const params = await Promise.all(
+      keypairs.map(async (kp, index) => {
+        const account = await randomServer().loadAccount(kp.publicKey());
+        return {
+          deviceId: index,
+          server: randomStellarCoreUrl(),
+          batchAddress: batchKeypair.publicKey(),
+          deviceKeypair: kp,
+          account,
+        };
+      })
     );
 
-    while (sent < Number(LOGS_NUMBER!)) {
+    const peroid = Number(TPS!) / 1000
+    const logsNumber = Number(LOGS_NUMBER!)
+    const start = process.hrtime();
+    const totalTasks = logsNumber * params.length
+    let finished = 0;
+    while (sent < logsNumber) {
       console.log(`Waiting ${Number(PEROID!) / 1000}s`);
       console.log(`Sending batch ${sent}`);
       for (const param of params) {
-        await wait(Number(TPS!)/1000);
-        sendLogTxPool.exec({...param, index: sent})
+        /* await wait(peroid); */
+        const linearized: SendLogTx = {
+          deviceId: param.deviceId,
+          index: sent,
+          server: param.server,
+          batchAddress: param.batchAddress,
+          deviceSecret: param.deviceKeypair.secret(),
+          accountId: param.account.accountId(),
+          accountSeq: param.account.sequenceNumber(),
+        };
+        param.account.incrementSequenceNumber();
+        pool.runTask<SendLogTx>(linearized, (err, result) => {
+          const end = process.hrtime(start);
+          console.log(`Task finished in ${end[1] / 1000000}ms`, err, result);
+          if (++finished === totalTasks) pool.close();
+        })
       }
       sent += 1;
     }
+    const end = process.hrtime(start);
+    console.log(`Task finished in ${end[1] / 1000000}ms`);
   } catch (err) {
     handleError(err, sent);
   }
@@ -238,6 +190,9 @@ function handleError(err: any, sent: number) {
 }
 
 async function wait(period: number) {
+  if(period === 0){
+    return
+  }
   return new Promise((resolve) => {
     setTimeout(resolve, period);
   });

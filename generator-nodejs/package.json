@@ -2,9 +2,10 @@
   "name": "stellot-iot",
   "version": "1.0.0",
   "description": "",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "ts-node ."
+    "build": "tsc -p .",
+    "start": "node ."
   },
   "repository": {
     "type": "git",
