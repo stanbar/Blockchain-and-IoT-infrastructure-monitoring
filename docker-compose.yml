@@ -34,10 +34,10 @@ services:
       - ALLOW_LOCALHOST_FOR_TESTING=true
       - SELF=node3
 
-  # nodejs-generator:
-  #   build: generator-nodejs
-  #   env_file: generator.env
-
-  go-generator:
-    build: generator-go
+  nodejs-generator:
+    build: generator-nodejs
     env_file: generator.env
+
+#   go-generator:
+#     build: generator-go
+#     env_file: generator.env
