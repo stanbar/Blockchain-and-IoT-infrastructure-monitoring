@@ -72,3 +72,7 @@ func TestDeriveDHKey(t *testing.T) {
 		t.Error("keys does not match")
 	}
 }
+
+func TestEncryptMemo(t *testing.T) {
+
+}

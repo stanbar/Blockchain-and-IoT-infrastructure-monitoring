@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,7 +14,9 @@ import (
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellot/stellot-iot/generator-go/crypto"
 	"github.com/stellot/stellot-iot/generator-go/helpers"
+	"github.com/stellot/stellot-iot/generator-go/usecases"
 	"github.com/stellot/stellot-iot/generator-go/utils"
 )
 
@@ -27,6 +30,7 @@ var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
 var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	keypairs := make([]*keypair.Full, noDevices)
 	for i := 0; i < noDevices; i++ {
 		keypairs[i] = keypair.MustRandom()
@@ -68,9 +72,10 @@ func main() {
 		}
 		sendLogs[i] = SendLogParams{
 			deviceId:      i,
+			logValue:      usecases.RandomTemperature(i),
 			server:        helpers.RandomStellarCoreUrl(),
 			horizon:       helpers.RandomHorizon(),
-			batchKeypair:  batchKeypair,
+			batchAddress:  batchKeypair.Address(),
 			deviceKeypair: keypairs[i],
 			account:       result.Account,
 		}
@@ -136,10 +141,11 @@ func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon
 
 type SendLogParams struct {
 	deviceId      int
+	logValue      [32]byte
 	index         int
 	server        string
 	horizon       *horizonclient.Client
-	batchKeypair  *keypair.Full
+	batchAddress  string
 	deviceKeypair *keypair.Full
 	account       *horizon.Account
 }
@@ -153,15 +159,24 @@ type SendLogResult struct {
 func sendLogTx(params SendLogParams) chan SendLogResult {
 	ch := make(chan SendLogResult)
 	go func() {
+
+		seqNum, err := strconv.Atoi(params.account.Sequence)
+		if err != nil {
+			ch <- SendLogResult{Error: err}
+			return
+		}
+		payload, err := crypto.EncryptToMemo(seqNum, params.deviceKeypair, params.batchAddress, params.logValue)
+		memo := txnbuild.MemoText(payload)
+
 		txParams := txnbuild.TransactionParams{
 			SourceAccount:        params.account,
 			IncrementSequenceNum: true,
 			Operations: []txnbuild.Operation{&txnbuild.Payment{
-				Destination: params.batchKeypair.Address(),
+				Destination: params.batchAddress,
 				Asset:       txnbuild.NativeAsset{},
 				Amount:      "0.0000001",
 			}},
-			Memo:       txnbuild.MemoText(strconv.Itoa(params.index) + strconv.Itoa(params.deviceId)),
+			Memo:       memo,
 			Timebounds: txnbuild.NewTimeout(20),
 			BaseFee:    100,
 		}

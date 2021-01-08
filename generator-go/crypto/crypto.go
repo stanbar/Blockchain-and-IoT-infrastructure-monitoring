@@ -1,11 +1,31 @@
 package crypto
 
 import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"github.com/jorrizza/ed2curve25519"
+	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/strkey"
 	"golang.org/x/crypto/curve25519"
+	"math/big"
 )
+
+func StellarAddressToPubKey(address string) ed25519.PublicKey {
+	return ed25519.PublicKey(strkey.MustDecode(strkey.VersionByteAccountID, address))
+}
+
+func StellarKeypairToPrivKey(kp *keypair.Full) ed25519.PrivateKey {
+	rawSeed := strkey.MustDecode(strkey.VersionByteSeed, kp.Seed())
+	reader := bytes.NewReader(rawSeed)
+	_, priv, err := ed25519.GenerateKey(reader)
+	if err != nil {
+		panic(err)
+	}
+	return priv
+}
 
 func DeriveDHKey(privKey ed25519.PrivateKey, pubKey ed25519.PublicKey) ([]byte, error) {
 	scalar := ed2curve25519.Ed25519PrivateKeyToCurve25519(privKey)
@@ -21,4 +41,27 @@ func DeriveDHKey(privKey ed25519.PrivateKey, pubKey ed25519.PublicKey) ([]byte, 
 
 func scalarMult(scalar, point []byte) ([]byte, error) {
 	return curve25519.X25519(scalar, point)
+}
+
+func EncryptToMemo(seqNumber int, kp *keypair.Full, to string, log [32]byte) ([]byte, error) {
+	var payload []byte
+	copy(payload[:], log[:32])
+	pubKey := StellarAddressToPubKey(to)
+	privKey := StellarKeypairToPrivKey(kp)
+
+	dchdKey, err := DeriveDHKey(privKey, pubKey)
+
+	block, err := aes.NewCipher(dchdKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var iv bytes.Buffer
+	iv.Write(make([]byte, 8))
+	iv.Write(new(big.Int).Mul(big.NewInt(int64(seqNumber)), big.NewInt(2)).Bytes())
+
+	stream := cipher.NewCTR(block, iv.Bytes())
+	ciphertext := make([]byte, 32)
+	stream.XORKeyStream(ciphertext[:], payload)
+	return ciphertext, nil
 }
