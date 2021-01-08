@@ -33,8 +33,14 @@ func TestDeriveDHKeyRandom(t *testing.T) {
 		aPub, aPriv := keys(alice)
 		bPub, bPriv := keys(bob)
 
-		derivedByA := DeriveDHKey(aPriv, bPub)
-		derivedByB := DeriveDHKey(bPriv, aPub)
+		derivedByA, err := DeriveDHKey(aPriv, bPub)
+		if err != nil {
+			t.Error(err)
+		}
+		derivedByB, err := DeriveDHKey(bPriv, aPub)
+		if err != nil {
+			t.Error(err)
+		}
 		if !bytes.Equal(derivedByA, derivedByB) {
 			t.Error("keys does not match")
 		}
@@ -54,8 +60,14 @@ func TestDeriveDHKey(t *testing.T) {
 	aPub, aPriv := keys(alice)
 	bPub, bPriv := keys(bob)
 
-	derivedByA := DeriveDHKey(aPriv, bPub)
-	derivedByB := DeriveDHKey(bPriv, aPub)
+	derivedByA, err := DeriveDHKey(aPriv, bPub)
+	if err != nil {
+		t.Error(err)
+	}
+	derivedByB, err := DeriveDHKey(bPriv, aPub)
+	if err != nil {
+		t.Error(err)
+	}
 	if !bytes.Equal(derivedByA, derivedByB) {
 		t.Error("keys does not match")
 	}
