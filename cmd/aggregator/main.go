@@ -33,7 +33,6 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		// fmt.Printf("%s, %s\n", txid, txbody)
 		transaction, err := txnbuild.TransactionFromXDR(txbody)
 		if err != nil {
 			log.Fatal(err)
@@ -43,14 +42,12 @@ func main() {
 			log.Fatal("Can not get simple transaction")
 		}
 		srcAccount := tx.SourceAccount()
-		log.Println(srcAccount)
 		genericMemo, ok := tx.Memo().(txnbuild.MemoHash)
 		if !ok {
 			log.Println("Can not cast memo to MemoHash")
 			continue
 		}
 		memo := txnbuild.MemoHash(genericMemo)
-		fmt.Println(string(memo[:]))
 		seqNumber, err := srcAccount.GetSequenceNumber()
 		if err != nil {
 			log.Fatal(err)
@@ -59,7 +56,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Println("memo:", string(decrypted[:]))
+		log.Println("decrypted memo:", string(decrypted[:]))
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "QueryRow failed: %v\n", err)
