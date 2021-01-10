@@ -8,7 +8,7 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/protocols/horizon"
-	"github.com/stellot/stellot-iot/generator-go/utils"
+	"github.com/stellot/stellot-iot/pkg/utils"
 )
 
 var networkPassphrase = utils.MustGetenv("NETWORK_PASSPHRASE")

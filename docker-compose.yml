@@ -42,6 +42,6 @@ services:
   #   build: generator-go
   #   env_file: generator.env
 
-  agregator:
-    build: agregator
+  aggregator:
+    build: ./cmd/aggregator
     env_file: generator.env

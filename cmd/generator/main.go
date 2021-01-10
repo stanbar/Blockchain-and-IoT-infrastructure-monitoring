@@ -14,10 +14,10 @@ import (
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellot/stellot-iot/generator-go/crypto"
-	"github.com/stellot/stellot-iot/generator-go/helpers"
-	"github.com/stellot/stellot-iot/generator-go/usecases"
-	"github.com/stellot/stellot-iot/generator-go/utils"
+	"github.com/stellot/stellot-iot/pkg/crypto"
+	"github.com/stellot/stellot-iot/pkg/helpers"
+	"github.com/stellot/stellot-iot/pkg/usecases"
+	"github.com/stellot/stellot-iot/pkg/utils"
 )
 
 var networkPassphrase = utils.MustGetenv("NETWORK_PASSPHRASE")

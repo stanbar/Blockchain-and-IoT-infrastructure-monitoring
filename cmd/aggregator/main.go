@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
-	"github.com/stellot/stellot-iot/generator-go/crypto"
-	"github.com/stellot/stellot-iot/generator-go/utils"
+	"github.com/stellot/stellot-iot/pkg/crypto"
+	"github.com/stellot/stellot-iot/pkg/utils"
 )
 
 var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))

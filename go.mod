@@ -1,4 +1,4 @@
-module github.com/stellot/stellot-iot/generator-go
+module github.com/stellot/stellot-iot
 
 go 1.15
 
