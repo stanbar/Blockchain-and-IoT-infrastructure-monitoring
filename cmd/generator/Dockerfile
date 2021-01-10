@@ -18,9 +18,8 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN go build -o /bin/app ./cmd/aggregator
+RUN go build -o /bin/app ./cmd/generator
 
 FROM scratch
 COPY --from=build /bin/app  /
 ENTRYPOINT ["/app"]
-

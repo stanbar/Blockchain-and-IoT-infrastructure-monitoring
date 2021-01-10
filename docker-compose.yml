@@ -34,14 +34,14 @@ services:
       - ALLOW_LOCALHOST_FOR_TESTING=true
       - SELF=node3
 
-  # nodejs-generator:
-  #   build: generator-nodejs
-  #   env_file: generator.env
-
-  # go-generator:
-  #   build: generator-go
-  #   env_file: generator.env
+  generator:
+    build: 
+      context: .
+      dockerfile: ./cmd/generator/Dockerfile
+    env_file: generator.env
 
   aggregator:
-    build: ./cmd/aggregator
+    build: 
+      context: .
+      dockerfile: ./cmd/aggregator/Dockerfile
     env_file: generator.env
