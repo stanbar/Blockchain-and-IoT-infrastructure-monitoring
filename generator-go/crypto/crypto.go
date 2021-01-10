@@ -55,10 +55,10 @@ func EncryptToMemo(seqNumber int, kp *keypair.Full, to string, log [32]byte) [32
 		panic(err)
 	}
 
-	return Encrypt(seqNumber, ecdhKey, log)
+	return encrypt(seqNumber, ecdhKey, log)
 }
 
-func Encrypt(seqNumber int, ecdhKey []byte, msg [32]byte) [32]byte {
+func encrypt(seqNumber int, ecdhKey []byte, msg [32]byte) [32]byte {
 	block, err := aes.NewCipher(ecdhKey)
 	if err != nil {
 		panic(err)
