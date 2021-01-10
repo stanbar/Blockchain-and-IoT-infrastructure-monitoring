@@ -160,7 +160,7 @@ func sendLogTx(params SendLogParams) chan SendLogResult {
 	ch := make(chan SendLogResult)
 	go func() {
 
-		seqNum, err := strconv.Atoi(params.account.Sequence)
+		seqNum, err := strconv.ParseInt(params.account.Sequence, 10, 64)
 		if err != nil {
 			ch <- SendLogResult{Error: err}
 			return
