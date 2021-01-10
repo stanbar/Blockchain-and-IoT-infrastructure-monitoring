@@ -67,7 +67,7 @@ const randomServer = () => servers[Math.floor(Math.random() * servers.length)];
 const randomStellarCoreUrl = () =>
   stellarCoreUrls[Math.floor(Math.random() * stellarCoreUrls.length)];
 
-const pool = new WorkerPool(os.cpus().length * 2);
+const pool = new WorkerPool(os.cpus().length * 8);
 
 /* const server = new Server(horizonUrls, { allowHttp: true }); */
 console.log({

@@ -38,6 +38,10 @@ services:
   #   build: generator-nodejs
   #   env_file: generator.env
 
-  go-generator:
-    build: generator-go
+  # go-generator:
+  #   build: generator-go
+  #   env_file: generator.env
+
+  agregator:
+    build: agregator
     env_file: generator.env
