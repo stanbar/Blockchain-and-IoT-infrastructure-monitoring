@@ -11,7 +11,8 @@ var tempBase = 10.0
 var base = []float64{4, 3, 2, 1, 2, 3, 6, 10, 12, 14, 15, 18,
 	20, 22, 22, 20, 18, 19, 16, 14, 12, 10, 8, 6}
 
-func RandomTemperature(timeDay int) [32]byte {
+func RandomTemperature(value int) [32]byte {
+	timeDay := value % len(base)
 	temp := base[timeDay] + tempBase + rand.Float64()*base[timeDay]
 	multipled := temp * 10
 	result := int(math.Round(multipled))

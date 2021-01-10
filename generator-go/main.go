@@ -166,7 +166,7 @@ func sendLogTx(params SendLogParams) chan SendLogResult {
 			return
 		}
 		payload, err := crypto.EncryptToMemo(seqNum+1, params.deviceKeypair, params.batchAddress, params.logValue)
-		memo := txnbuild.MemoText(string(payload[:]))
+		memo := txnbuild.MemoHash(*payload)
 
 		txParams := txnbuild.TransactionParams{
 			SourceAccount:        params.account,
