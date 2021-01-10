@@ -3,6 +3,7 @@ package crypto
 import (
 	"bytes"
 	"crypto/ed25519"
+	"fmt"
 	"testing"
 
 	"github.com/stellar/go/keypair"
@@ -74,5 +75,27 @@ func TestDeriveDHKey(t *testing.T) {
 }
 
 func TestEncryptMemo(t *testing.T) {
+	alice, err := keypair.Random()
+	if err != nil {
+		t.Error(err)
+	}
+	bob, err := keypair.Random()
+	if err != nil {
+		t.Error(err)
+	}
+	plaintext := [32]byte{97, 98, 99} // "abc"
+	fmt.Println("plaintext", plaintext, string(plaintext[:]))
 
+	ciphertext := EncryptToMemo(1, alice, bob.Address(), plaintext)
+	fmt.Println("ciphertext", ciphertext, string(ciphertext[:]))
+	if bytes.Equal(plaintext[:], ciphertext[:]) {
+		t.Error("Cipher text and plaintext are the same")
+	}
+
+	deciphertext := EncryptToMemo(1, bob, alice.Address(), ciphertext)
+	fmt.Println("deciphertext", deciphertext, string(deciphertext[:]))
+
+	if !bytes.Equal(plaintext[:], deciphertext[:]) {
+		t.Errorf("plaintextes does not match plain: %v cipher: %v decipher: %v", plaintext[:], ciphertext[:], deciphertext[:])
+	}
 }

@@ -43,25 +43,36 @@ func scalarMult(scalar, point []byte) ([]byte, error) {
 	return curve25519.X25519(scalar, point)
 }
 
-func EncryptToMemo(seqNumber int, kp *keypair.Full, to string, log [32]byte) ([]byte, error) {
+func EncryptToMemo(seqNumber int, kp *keypair.Full, to string, log [32]byte) [32]byte {
 	var payload []byte
 	copy(payload[:], log[:32])
+
 	pubKey := StellarAddressToPubKey(to)
 	privKey := StellarKeypairToPrivKey(kp)
 
-	dchdKey, err := DeriveDHKey(privKey, pubKey)
-
-	block, err := aes.NewCipher(dchdKey)
+	ecdhKey, err := DeriveDHKey(privKey, pubKey)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
-	var iv bytes.Buffer
-	iv.Write(make([]byte, 8))
-	iv.Write(new(big.Int).Mul(big.NewInt(int64(seqNumber)), big.NewInt(2)).Bytes())
+	return Encrypt(seqNumber, ecdhKey, log)
+}
 
-	stream := cipher.NewCTR(block, iv.Bytes())
-	ciphertext := make([]byte, 32)
-	stream.XORKeyStream(ciphertext[:], payload)
-	return ciphertext, nil
+func Encrypt(seqNumber int, ecdhKey []byte, msg [32]byte) [32]byte {
+	block, err := aes.NewCipher(ecdhKey)
+	if err != nil {
+		panic(err)
+	}
+
+	ciphertext := make([]byte, aes.BlockSize+32)
+	iv := ciphertext[:aes.BlockSize]
+	new(big.Int).Mul(big.NewInt(int64(seqNumber)), big.NewInt(2)).FillBytes(iv[8:])
+
+	stream := cipher.NewCTR(block, iv)
+	stream.XORKeyStream(ciphertext[aes.BlockSize:], msg[:])
+
+	var out [32]byte
+	copy(out[:], ciphertext[aes.BlockSize:])
+
+	return out
 }
