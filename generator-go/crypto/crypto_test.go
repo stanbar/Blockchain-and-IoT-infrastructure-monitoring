@@ -86,13 +86,19 @@ func TestEncryptMemo(t *testing.T) {
 	plaintext := [32]byte{97, 98, 99} // "abc"
 	fmt.Println("plaintext", plaintext, string(plaintext[:]))
 
-	ciphertext := EncryptToMemo(1, alice, bob.Address(), plaintext)
+	ciphertext, err := EncryptToMemo(1, alice, bob.Address(), plaintext)
+	if err != nil {
+		t.Error(err)
+	}
 	fmt.Println("ciphertext", ciphertext, string(ciphertext[:]))
 	if bytes.Equal(plaintext[:], ciphertext[:]) {
 		t.Error("Cipher text and plaintext are the same")
 	}
 
-	deciphertext := EncryptToMemo(1, bob, alice.Address(), ciphertext)
+	deciphertext, err := EncryptToMemo(1, bob, alice.Address(), *ciphertext)
+	if err != nil {
+		t.Error(err)
+	}
 	fmt.Println("deciphertext", deciphertext, string(deciphertext[:]))
 
 	if !bytes.Equal(plaintext[:], deciphertext[:]) {

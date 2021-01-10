@@ -43,7 +43,7 @@ func scalarMult(scalar, point []byte) ([]byte, error) {
 	return curve25519.X25519(scalar, point)
 }
 
-func EncryptToMemo(seqNumber int, kp *keypair.Full, to string, log [32]byte) [32]byte {
+func EncryptToMemo(seqNumber int, kp *keypair.Full, to string, log [32]byte) (*[32]byte, error) {
 	var payload []byte
 	copy(payload[:], log[:32])
 
@@ -52,16 +52,16 @@ func EncryptToMemo(seqNumber int, kp *keypair.Full, to string, log [32]byte) [32
 
 	ecdhKey, err := DeriveDHKey(privKey, pubKey)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	return encrypt(seqNumber, ecdhKey, log)
 }
 
-func encrypt(seqNumber int, ecdhKey []byte, msg [32]byte) [32]byte {
+func encrypt(seqNumber int, ecdhKey []byte, msg [32]byte) (*[32]byte, error) {
 	block, err := aes.NewCipher(ecdhKey)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	ciphertext := make([]byte, aes.BlockSize+32)
@@ -74,5 +74,5 @@ func encrypt(seqNumber int, ecdhKey []byte, msg [32]byte) [32]byte {
 	var out [32]byte
 	copy(out[:], ciphertext[aes.BlockSize:])
 
-	return out
+	return &out, nil
 }
