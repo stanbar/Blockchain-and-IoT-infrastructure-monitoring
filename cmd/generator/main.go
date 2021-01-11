@@ -27,6 +27,7 @@ var noDevices, _ = strconv.Atoi(utils.MustGetenv("NO_DEVICES"))
 var peroid, _ = strconv.Atoi(utils.MustGetenv("PEROID"))
 var sendTxTo = utils.MustGetenv("SEND_TX_TO")
 var tps, _ = strconv.Atoi(utils.MustGetenv("TPS"))
+var timeOut, _ = strconv.Atoi(utils.MustGetenv("SEND_TO_CORE_TIMEOUT_SECONDS"))
 var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
 var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
 
@@ -48,7 +49,7 @@ type SendLogResult struct {
 }
 
 func main() {
-	http.DefaultClient.Timeout = time.Second * 10
+	http.DefaultClient.Timeout = time.Second * time.Duration(timeOut)
 	rand.Seed(time.Now().UnixNano())
 	keypairs := make([]*keypair.Full, noDevices)
 	for i := 0; i < noDevices; i++ {
