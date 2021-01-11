@@ -52,8 +52,11 @@ func main() {
 	for _, chunk := range chunks {
 		_, err := createAccounts(chunk, masterKp, masterAccount, helpers.RandomHorizon())
 		if err != nil {
-			hError := err.(*horizonclient.Error)
-			log.Fatal("Error submitting transaction:", hError.Problem.Extras)
+			hError, ok := err.(*horizonclient.Error)
+			if ok {
+				log.Fatal("Error submitting transaction:", hError.Problem.Extras)
+			}
+			log.Fatalf("Error submitting transaction %+v", err)
 		}
 	}
 
