@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -30,6 +31,7 @@ var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
 var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
 
 func main() {
+	http.DefaultClient.Timeout = time.Second * 10
 	rand.Seed(time.Now().UnixNano())
 	keypairs := make([]*keypair.Full, noDevices)
 	for i := 0; i < noDevices; i++ {
@@ -85,29 +87,22 @@ func main() {
 	}
 
 	resultChans := make([]chan SendLogResult, logsNumber*len(keypairs))
-	for i := 0; i < logsNumber; i++ {
-		for j := 0; j < len(keypairs); j++ {
-			log.Println("sleep", time.Duration(1000.0/tps)*time.Millisecond)
-			time.Sleep(time.Duration(1000.0/tps) * time.Millisecond)
-			params := sendLogs[j]
-			log.Printf("Sending log tx %d%d index: %d", i, j, i*len(keypairs)+j)
-			resultChans[i*len(keypairs)+j] = sendLogTx(params)
+	go func() {
+		for i := 0; i < logsNumber; i++ {
+			for j := 0; j < len(keypairs); j++ {
+				log.Println("sleep", time.Duration(1000.0/tps)*time.Millisecond)
+				time.Sleep(time.Duration(1000.0/tps) * time.Millisecond)
+				params := sendLogs[j]
+				log.Printf("Sending log tx %d%d index: %d", i, j, i*len(keypairs)+j)
+				resultChans[i*len(keypairs)+j] = sendLogTx(params)
+			}
 		}
-	}
+	}()
 
 	for i := 0; i < logsNumber*len(keypairs); i++ {
 		result := <-resultChans[i]
 		if result.Error != nil {
 			log.Printf("Error sending log %d %+v\n", i, result.Error)
-		} else if result.HTTPResponse != nil {
-			defer result.HTTPResponse.Body.Close()
-			body, err := ioutil.ReadAll(result.HTTPResponse.Body)
-			if err != nil {
-				log.Printf("Error reading body of log %d %v", i, err)
-			} else {
-				log.Printf("Success sending log %d %s", i, string(body))
-			}
-		} else if result.HorizonResponse != nil {
 		}
 	}
 }
@@ -154,9 +149,9 @@ type SendLogParams struct {
 }
 
 type SendLogResult struct {
-	HTTPResponse    *http.Response
-	HorizonResponse *horizon.Transaction
-	Error           error
+	HTTPResponseBody string
+	HorizonResponse  *horizon.Transaction
+	Error            error
 }
 
 func sendLogTx(params SendLogParams) chan SendLogResult {
@@ -186,16 +181,19 @@ func sendLogTx(params SendLogParams) chan SendLogResult {
 
 		tx, err := txnbuild.NewTransaction(txParams)
 		if err != nil {
+			log.Println("Error creating new transaction", err)
 			ch <- SendLogResult{Error: err}
 			return
 		}
 		signedTx, err := tx.Sign(networkPassphrase, params.deviceKeypair)
 		if err != nil {
+			log.Println("Error signing transaction", err)
 			ch <- SendLogResult{Error: err}
 			return
 		}
 		xdr, err := signedTx.Base64()
 		if err != nil {
+			log.Println("Error converting to base64", err)
 			ch <- SendLogResult{Error: err}
 			return
 		}
@@ -205,7 +203,18 @@ func sendLogTx(params SendLogParams) chan SendLogResult {
 			ch <- SendLogResult{HorizonResponse: &resp, Error: err}
 		} else if sendTxTo == "stellar-core" {
 			response, err := sendTxToStellarCore(params.server, xdr)
-			ch <- SendLogResult{HTTPResponse: response, Error: err}
+			if err != nil {
+				uError := err.(*url.Error)
+				log.Printf("Error sending get request to stellar core %+v\n", uError)
+			}
+			defer response.Body.Close()
+			body, err := ioutil.ReadAll(response.Body)
+			if err != nil {
+				log.Printf("Error reading body of log %d %v", params.deviceId, err)
+			} else {
+				log.Printf("Success sending log %d %s", params.deviceId, string(body))
+			}
+			ch <- SendLogResult{HTTPResponseBody: string(body), Error: err}
 		} else {
 			ch <- SendLogResult{Error: errors.New("Unsupported sendTxTo")}
 		}
