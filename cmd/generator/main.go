@@ -87,17 +87,15 @@ func main() {
 	}
 
 	resultChans := make([]chan SendLogResult, logsNumber*len(keypairs))
-	go func() {
-		for i := 0; i < logsNumber; i++ {
-			for j := 0; j < len(keypairs); j++ {
-				log.Println("sleep", time.Duration(1000.0/tps)*time.Millisecond)
-				time.Sleep(time.Duration(1000.0/tps) * time.Millisecond)
-				params := sendLogs[j]
-				log.Printf("Sending log tx %d%d index: %d", i, j, i*len(keypairs)+j)
-				resultChans[i*len(keypairs)+j] = sendLogTx(params)
-			}
+	for i := 0; i < logsNumber; i++ {
+		for j := 0; j < len(keypairs); j++ {
+			log.Println("sleep", time.Duration(1000.0/tps)*time.Millisecond)
+			time.Sleep(time.Duration(1000.0/tps) * time.Millisecond)
+			params := sendLogs[j]
+			log.Printf("Sending log tx %d%d index: %d", i, j, i*len(keypairs)+j)
+			resultChans[i*len(keypairs)+j] = sendLogTx(params)
 		}
-	}()
+	}
 
 	for i := 0; i < logsNumber*len(keypairs); i++ {
 		result := <-resultChans[i]
