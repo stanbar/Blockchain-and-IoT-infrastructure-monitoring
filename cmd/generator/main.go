@@ -30,6 +30,23 @@ var tps, _ = strconv.Atoi(utils.MustGetenv("TPS"))
 var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
 var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
 
+type IotDevice struct {
+	deviceId      int
+	logValue      [32]byte
+	index         int
+	server        string
+	horizon       *horizonclient.Client
+	batchAddress  string
+	deviceKeypair *keypair.Full
+	account       *horizon.Account
+}
+
+type SendLogResult struct {
+	HTTPResponseBody string
+	HorizonResponse  *horizon.Transaction
+	Error            error
+}
+
 func main() {
 	http.DefaultClient.Timeout = time.Second * 10
 	rand.Seed(time.Now().UnixNano())
@@ -67,7 +84,7 @@ func main() {
 		channels[i] = loadAccountChan(keypairs[i].Address())
 	}
 
-	sendLogs := make([]SendLogParams, len(keypairs))
+	iotDevices := make([]IotDevice, len(keypairs))
 	for i := 0; i < len(keypairs); i++ {
 		result := <-channels[i]
 		if result.Error != nil {
@@ -75,9 +92,8 @@ func main() {
 			hError := result.Error.(*horizonclient.Error)
 			log.Println("Error submitting transaction:", hError.Problem.Extras["result_codes"])
 		}
-		sendLogs[i] = SendLogParams{
+		iotDevices[i] = IotDevice{
 			deviceId:      i,
-			logValue:      usecases.RandomTemperature(i),
 			server:        helpers.RandomStellarCoreUrl(),
 			horizon:       helpers.RandomHorizon(),
 			batchAddress:  batchKeypair.Address(),
@@ -86,19 +102,20 @@ func main() {
 		}
 	}
 
-	resultChans := make([]chan SendLogResult, logsNumber*len(keypairs))
-	for i := 0; i < logsNumber; i++ {
-		for j := 0; j < len(keypairs); j++ {
-			log.Println("sleep", time.Duration(1000.0/tps)*time.Millisecond)
-			time.Sleep(time.Duration(1000.0/tps) * time.Millisecond)
-			params := sendLogs[j]
-			log.Printf("Sending log tx %d%d index: %d", i, j, i*len(keypairs)+j)
-			resultChans[i*len(keypairs)+j] = sendLogTx(params)
-		}
+	resultChan := make(chan SendLogResult)
+	for _, iotDevice := range iotDevices {
+		go func(params IotDevice, resultChan chan SendLogResult) {
+			time.Sleep(time.Duration(10.0*params.deviceId) * time.Millisecond)
+			for i := 0; i < logsNumber; i++ {
+				log.Printf("device %d goes to sleep %s", params.deviceId, time.Duration(1000.0/tps)*time.Millisecond)
+				time.Sleep(time.Duration(1000.0/tps) * time.Millisecond)
+				resultChan <- sendLogTx(params)
+			}
+		}(iotDevice, resultChan)
 	}
 
 	for i := 0; i < logsNumber*len(keypairs); i++ {
-		result := <-resultChans[i]
+		result := <-resultChan
 		if result.Error != nil {
 			log.Printf("Error sending log %d %+v\n", i, result.Error)
 		}
@@ -135,89 +152,65 @@ func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon
 	return &response, err
 }
 
-type SendLogParams struct {
-	deviceId      int
-	logValue      [32]byte
-	index         int
-	server        string
-	horizon       *horizonclient.Client
-	batchAddress  string
-	deviceKeypair *keypair.Full
-	account       *horizon.Account
-}
+func sendLogTx(params IotDevice) SendLogResult {
+	seqNum, err := strconv.ParseInt(params.account.Sequence, 10, 64)
+	if err != nil {
+		return SendLogResult{Error: err}
+	}
 
-type SendLogResult struct {
-	HTTPResponseBody string
-	HorizonResponse  *horizon.Transaction
-	Error            error
-}
+	logValue := usecases.RandomTemperature(params.index + params.deviceId)
+	payload, err := crypto.EncryptToMemo(seqNum+1, params.deviceKeypair, params.batchAddress, logValue)
+	memo := txnbuild.MemoHash(*payload)
 
-func sendLogTx(params SendLogParams) chan SendLogResult {
-	ch := make(chan SendLogResult)
-	go func() {
+	txParams := txnbuild.TransactionParams{
+		SourceAccount:        params.account,
+		IncrementSequenceNum: true,
+		Operations: []txnbuild.Operation{&txnbuild.Payment{
+			Destination: params.batchAddress,
+			Asset:       txnbuild.NativeAsset{},
+			Amount:      "0.0000001",
+		}},
+		Memo:       memo,
+		Timebounds: txnbuild.NewTimeout(20),
+		BaseFee:    100,
+	}
 
-		seqNum, err := strconv.ParseInt(params.account.Sequence, 10, 64)
+	tx, err := txnbuild.NewTransaction(txParams)
+	if err != nil {
+		log.Println("Error creating new transaction", err)
+		return SendLogResult{Error: err}
+	}
+	signedTx, err := tx.Sign(networkPassphrase, params.deviceKeypair)
+	if err != nil {
+		log.Println("Error signing transaction", err)
+		return SendLogResult{Error: err}
+	}
+	xdr, err := signedTx.Base64()
+	if err != nil {
+		log.Println("Error converting to base64", err)
+		return SendLogResult{Error: err}
+	}
+
+	if sendTxTo == "horizon" {
+		resp, err := sendTxToHorizon(params.horizon, xdr)
+		return SendLogResult{HorizonResponse: &resp, Error: err}
+	} else if sendTxTo == "stellar-core" {
+		response, err := sendTxToStellarCore(params.server, xdr)
 		if err != nil {
-			ch <- SendLogResult{Error: err}
-			return
+			uError := err.(*url.Error)
+			log.Printf("Error sending get request to stellar core %+v\n", uError)
 		}
-		payload, err := crypto.EncryptToMemo(seqNum+1, params.deviceKeypair, params.batchAddress, params.logValue)
-		memo := txnbuild.MemoHash(*payload)
-
-		txParams := txnbuild.TransactionParams{
-			SourceAccount:        params.account,
-			IncrementSequenceNum: true,
-			Operations: []txnbuild.Operation{&txnbuild.Payment{
-				Destination: params.batchAddress,
-				Asset:       txnbuild.NativeAsset{},
-				Amount:      "0.0000001",
-			}},
-			Memo:       memo,
-			Timebounds: txnbuild.NewTimeout(20),
-			BaseFee:    100,
-		}
-
-		tx, err := txnbuild.NewTransaction(txParams)
+		defer response.Body.Close()
+		body, err := ioutil.ReadAll(response.Body)
 		if err != nil {
-			log.Println("Error creating new transaction", err)
-			ch <- SendLogResult{Error: err}
-			return
-		}
-		signedTx, err := tx.Sign(networkPassphrase, params.deviceKeypair)
-		if err != nil {
-			log.Println("Error signing transaction", err)
-			ch <- SendLogResult{Error: err}
-			return
-		}
-		xdr, err := signedTx.Base64()
-		if err != nil {
-			log.Println("Error converting to base64", err)
-			ch <- SendLogResult{Error: err}
-			return
-		}
-
-		if sendTxTo == "horizon" {
-			resp, err := sendTxToHorizon(params.horizon, xdr)
-			ch <- SendLogResult{HorizonResponse: &resp, Error: err}
-		} else if sendTxTo == "stellar-core" {
-			response, err := sendTxToStellarCore(params.server, xdr)
-			if err != nil {
-				uError := err.(*url.Error)
-				log.Printf("Error sending get request to stellar core %+v\n", uError)
-			}
-			defer response.Body.Close()
-			body, err := ioutil.ReadAll(response.Body)
-			if err != nil {
-				log.Printf("Error reading body of log %d %v", params.deviceId, err)
-			} else {
-				log.Printf("Success sending log %d %s", params.deviceId, string(body))
-			}
-			ch <- SendLogResult{HTTPResponseBody: string(body), Error: err}
+			log.Printf("Error reading body of log %d %v", params.deviceId, err)
 		} else {
-			ch <- SendLogResult{Error: errors.New("Unsupported sendTxTo")}
+			log.Printf("Success sending log %d %s", params.deviceId, string(body))
 		}
-	}()
-	return ch
+		return SendLogResult{HTTPResponseBody: string(body), Error: err}
+	} else {
+		return SendLogResult{Error: errors.New("Unsupported sendTxTo")}
+	}
 }
 
 func sendTxToHorizon(horizon *horizonclient.Client, xdr string) (resp horizon.Transaction, err error) {
