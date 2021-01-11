@@ -14,10 +14,11 @@ import (
 )
 
 var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
+var databaseUrl = utils.MustGetenv("DATABASE_URL")
 
 func main() {
 
-	dbpool, err := pgxpool.Connect(context.Background(), "postgres://stellar:jBH7qeurzt1wOCQ2@node1/core")
+	dbpool, err := pgxpool.Connect(context.Background(), databaseUrl)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
 		os.Exit(1)
@@ -61,5 +62,7 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "QueryRow failed: %v\n", err)
 		os.Exit(1)
+	} else {
+		log.Println("Done")
 	}
 }
