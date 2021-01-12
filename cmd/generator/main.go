@@ -106,7 +106,7 @@ func main() {
 	resultChan := make(chan SendLogResult)
 	for _, iotDevice := range iotDevices {
 		go func(params IotDevice, resultChan chan SendLogResult) {
-			time.Sleep(time.Duration(10.0*params.deviceId) * time.Millisecond)
+			time.Sleep(time.Duration(1000.0*params.deviceId/len(iotDevices)) * time.Millisecond)
 			for i := 0; i < logsNumber; i++ {
 				log.Printf("device %d goes to sleep %s", params.deviceId, time.Duration(1000.0/tps)*time.Millisecond)
 				time.Sleep(time.Duration(1000.0/tps) * time.Millisecond)
