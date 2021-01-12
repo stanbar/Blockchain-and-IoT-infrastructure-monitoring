@@ -11,6 +11,7 @@ services:
       - ARTIFICIALLY_GENERATE_LOAD_FOR_TESTING=true
       - ALLOW_LOCALHOST_FOR_TESTING=true
       - SELF=node1
+      - HORIZON_ENABLED=true
 
   node2:
     image: stasbar/stellot-quickstart
