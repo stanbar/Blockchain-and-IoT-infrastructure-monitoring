@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io/ioutil"
 	"log"
@@ -8,7 +9,10 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/keypair"
@@ -40,6 +44,7 @@ type IotDevice struct {
 	batchAddress  string
 	deviceKeypair *keypair.Full
 	account       *horizon.Account
+	rateLimiter   *rate.Limiter
 }
 
 type SendLogResult struct {
@@ -100,27 +105,31 @@ func main() {
 			batchAddress:  batchKeypair.Address(),
 			deviceKeypair: keypairs[i],
 			account:       result.Account,
+			rateLimiter:   rate.NewLimiter(rate.Every(time.Duration(1000.0/tps)*time.Millisecond), 1),
 		}
 	}
 
-	resultChan := make(chan SendLogResult)
+	var wg sync.WaitGroup
 	for _, iotDevice := range iotDevices {
-		go func(params IotDevice, resultChan chan SendLogResult) {
+		wg.Add(1)
+		go func(params IotDevice, wg *sync.WaitGroup) {
+			defer wg.Done()
 			time.Sleep(time.Duration(1000.0*params.deviceId/len(iotDevices)) * time.Millisecond)
 			for i := 0; i < logsNumber; i++ {
-				log.Printf("device %d goes to sleep %s", params.deviceId, time.Duration(1000.0/tps)*time.Millisecond)
-				time.Sleep(time.Duration(1000.0/tps) * time.Millisecond)
-				resultChan <- sendLogTx(params)
+				ctx := context.Background()
+				err := params.rateLimiter.Wait(ctx)
+				if err != nil {
+					log.Println("Error returned by limiter", err)
+					return
+				}
+				sendLogTx(params)
 			}
-		}(iotDevice, resultChan)
+		}(iotDevice, &wg)
 	}
 
-	for i := 0; i < logsNumber*len(keypairs); i++ {
-		result := <-resultChan
-		if result.Error != nil {
-			log.Printf("Error sending log %d %+v\n", i, result.Error)
-		}
-	}
+	log.Println("Main: Waiting for workers to finish")
+	wg.Wait()
+	log.Println("Main: Completed")
 }
 
 func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon.Account, client *horizonclient.Client) (*horizon.Transaction, error) {
@@ -204,9 +213,9 @@ func sendLogTx(params IotDevice) SendLogResult {
 		defer response.Body.Close()
 		body, err := ioutil.ReadAll(response.Body)
 		if err != nil {
-			log.Printf("Error reading body of log %d %v", params.deviceId, err)
+			log.Printf("Error reading body of log %d%d %v", params.index, params.deviceId, err)
 		} else {
-			log.Printf("Success sending log %d %s", params.deviceId, string(body))
+			log.Printf("Success sending log %d%d %s", params.index, params.deviceId, string(body))
 		}
 		return SendLogResult{HTTPResponseBody: string(body), Error: err}
 	} else {
