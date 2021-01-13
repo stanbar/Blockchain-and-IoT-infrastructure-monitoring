@@ -28,11 +28,10 @@ import (
 
 var networkPassphrase = utils.MustGetenv("NETWORK_PASSPHRASE")
 var logsNumber, _ = strconv.Atoi(utils.MustGetenv("LOGS_NUMBER"))
-var noDevices, _ = strconv.Atoi(utils.MustGetenv("NO_DEVICES"))
 var peroid, _ = strconv.Atoi(utils.MustGetenv("PEROID"))
 var sendTxTo = utils.MustGetenv("SEND_TX_TO")
 var tps, _ = strconv.Atoi(utils.MustGetenv("TPS"))
-var timeOut, _ = strconv.Atoi(utils.MustGetenv("SEND_TO_CORE_TIMEOUT_SECONDS"))
+var timeOut, _ = strconv.ParseInt(utils.MustGetenv("SEND_TO_CORE_TIMEOUT_SECONDS"), 10, 64)
 var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
 var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
 
@@ -57,10 +56,7 @@ type SendLogResult struct {
 func main() {
 	http.DefaultClient.Timeout = time.Second * time.Duration(timeOut)
 	rand.Seed(time.Now().UnixNano())
-	keypairs := make([]*keypair.Full, noDevices)
-	for i := 0; i < noDevices; i++ {
-		keypairs[i] = keypair.MustRandom()
-	}
+	keypairs := helpers.DevicesKeypairs()
 	masterAccount, err := helpers.LoadMasterAccount()
 	if err != nil {
 		log.Fatal(err)
@@ -80,9 +76,11 @@ func main() {
 		if err != nil {
 			hError, ok := err.(*horizonclient.Error)
 			if ok {
-				log.Fatal("Error submitting transaction:", hError.Problem.Extras)
+				log.Println("Error submitting transaction:", hError.Problem.Extras)
 			}
-			log.Fatalf("Error submitting transaction %+v", err)
+		}
+		if res != nil {
+			log.Println(res.Successful)
 		}
 	}
 
@@ -182,7 +180,7 @@ func sendLogTx(params IotDevice, eventIndex int) SendLogResult {
 			Amount:      "0.0000001",
 		}},
 		Memo:       memo,
-		Timebounds: txnbuild.NewTimeout(20),
+		Timebounds: txnbuild.NewTimeout(timeOut),
 		BaseFee:    100,
 	}
 
@@ -204,6 +202,18 @@ func sendLogTx(params IotDevice, eventIndex int) SendLogResult {
 
 	if sendTxTo == "horizon" {
 		resp, err := sendTxToHorizon(params.horizon, xdr)
+		if err != nil {
+			hError := err.(*horizonclient.Error)
+			if hError.Problem.Extras != nil {
+				if hError.Problem.Extras["result_codes"] != nil {
+					log.Fatalf("Error submitting sendLogTx to horizon, log device: %d log no. %d error: %v", params.deviceId, eventIndex, hError.Problem.Extras["result_codes"])
+				} else {
+					log.Fatalf("Error submitting sendLogTx to horizon, log device: %d log no. %d error: %v", params.deviceId, eventIndex, hError.Problem.Extras)
+				}
+			} else {
+				log.Fatalf("Error submitting sendLogTx to horizon, log device: %d log no. %d error: %s", params.deviceId, eventIndex, err)
+			}
+		}
 		return SendLogResult{HorizonResponse: &resp, Error: err}
 	} else if sendTxTo == "stellar-core" {
 		response, err := sendTxToStellarCore(params.server, xdr)
@@ -227,20 +237,8 @@ func sendLogTx(params IotDevice, eventIndex int) SendLogResult {
 	}
 }
 
-func sendTxToHorizon(horizon *horizonclient.Client, xdr string) (resp horizon.Transaction, err error) {
-	resp, err = horizon.SubmitTransactionXDR(xdr)
-
-	if err != nil {
-		hError := err.(*horizonclient.Error)
-		if hError.Problem.Extras != nil {
-			if hError.Problem.Extras["result_codes"] != nil {
-				log.Println("Error submitting sendLogTx to horizon", hError.Problem.Extras["result_codes"])
-			} else {
-				log.Println("Error submitting sendLogTx to horizon", hError.Problem.Extras)
-			}
-		}
-	}
-	return
+func sendTxToHorizon(horizon *horizonclient.Client, xdr string) (horizon.Transaction, error) {
+	return horizon.SubmitTransactionXDR(xdr)
 }
 
 func sendTxToStellarCore(server string, xdr string) (resp *http.Response, err error) {

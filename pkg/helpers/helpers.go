@@ -14,10 +14,24 @@ import (
 var networkPassphrase = utils.MustGetenv("NETWORK_PASSPHRASE")
 var stellarCoreUrls = utils.MustGetenv("STELLAR_CORE_URLS")
 var stellarCoreUrlsSlice = strings.Split(stellarCoreUrls, " ")
+var devicesSecrets = utils.MustGetenv("DEVICES_SECRETS")
+var devicesSecretsSlice = strings.Split(devicesSecrets, " ")
 var horizonServerUrls = utils.MustGetenv("HORIZON_SERVER_URLS")
 var horizonServerUrlsSlice = strings.Split(horizonServerUrls, " ")
 var horizonServers = CreateHorizonServers()
 var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
+
+func DevicesKeypairs() []*keypair.Full {
+	keypairs := make([]*keypair.Full, len(devicesSecretsSlice))
+	for i, v := range devicesSecretsSlice {
+		key, err := keypair.ParseFull(v)
+		if err != nil {
+			panic(err)
+		}
+		keypairs[i] = key
+	}
+	return keypairs
+}
 
 func CreateHorizonServers() []*horizonclient.Client {
 	horizons := make([]*horizonclient.Client, len(horizonServerUrlsSlice))
