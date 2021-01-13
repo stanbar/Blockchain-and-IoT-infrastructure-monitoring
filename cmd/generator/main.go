@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -122,7 +123,7 @@ func main() {
 					log.Println("Error returned by limiter", err)
 					return
 				}
-				sendLogTx(params)
+				sendLogTx(params, i)
 			}
 		}(iotDevice, &wg)
 	}
@@ -162,7 +163,7 @@ func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon
 	return &response, err
 }
 
-func sendLogTx(params IotDevice) SendLogResult {
+func sendLogTx(params IotDevice, eventIndex int) SendLogResult {
 	seqNum, err := strconv.ParseInt(params.account.Sequence, 10, 64)
 	if err != nil {
 		return SendLogResult{Error: err}
@@ -213,9 +214,12 @@ func sendLogTx(params IotDevice) SendLogResult {
 		defer response.Body.Close()
 		body, err := ioutil.ReadAll(response.Body)
 		if err != nil {
-			log.Printf("Error reading body of log %d%d %v", params.index, params.deviceId, err)
+			log.Printf("Error reading body of log device: %d log no. %d %v", params.deviceId, eventIndex, err)
 		} else {
-			log.Printf("Success sending log %d%d %s", params.index, params.deviceId, string(body))
+			log.Printf("Success sending log deviceId %d log no. %d %s", params.deviceId, eventIndex, string(body))
+			if strings.Contains(string(body), "ERROR") {
+				log.Fatalf("Received ERROR transactioin in deviceId %d log no. %d", params.deviceId, eventIndex)
+			}
 		}
 		return SendLogResult{HTTPResponseBody: string(body), Error: err}
 	} else {
