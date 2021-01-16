@@ -201,7 +201,7 @@ func sendLogTx(params IotDevice, eventIndex int) SendLogResult {
 	}
 
 	if sendTxTo == "horizon" {
-		resp, err := sendTxToHorizon(params.horizon, xdr)
+		resp, err := sendTxToHorizon(params.horizon, signedTx)
 		if err != nil {
 			hError := err.(*horizonclient.Error)
 			if hError.Problem.Extras != nil {
@@ -214,6 +214,7 @@ func sendLogTx(params IotDevice, eventIndex int) SendLogResult {
 				log.Fatalf("Error submitting sendLogTx to horizon, log device: %d log no. %d error: %s", params.deviceId, eventIndex, err)
 			}
 		}
+		log.Printf("Success sending log deviceId %d log no. %d %s", params.deviceId, eventIndex, string(resp.ResultXdr))
 		return SendLogResult{HorizonResponse: &resp, Error: err}
 	} else if sendTxTo == "stellar-core" {
 		response, err := sendTxToStellarCore(params.server, xdr)
@@ -237,8 +238,8 @@ func sendLogTx(params IotDevice, eventIndex int) SendLogResult {
 	}
 }
 
-func sendTxToHorizon(horizon *horizonclient.Client, xdr string) (horizon.Transaction, error) {
-	return horizon.SubmitTransactionXDR(xdr)
+func sendTxToHorizon(horizon *horizonclient.Client, transaction *txnbuild.Transaction) (horizon.Transaction, error) {
+	return horizon.SubmitTransactionWithOptions(transaction, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
 }
 
 func sendTxToStellarCore(server string, xdr string) (resp *http.Response, err error) {
