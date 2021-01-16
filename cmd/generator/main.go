@@ -38,6 +38,7 @@ var masterKp, _ = keypair.FromRawSeed(network.ID(networkPassphrase))
 type IotDevice struct {
 	deviceId      int
 	logValue      [32]byte
+	physicsType   usecases.PhysicsType
 	index         int
 	server        string
 	horizon       *horizonclient.Client
@@ -61,10 +62,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	res, err := createAccounts([]*keypair.Full{batchKeypair}, masterKp, masterAccount, helpers.RandomHorizon())
+
+	res, err := createAccounts([]*keypair.Full{batchKeypair, usecases.HumdAssetKeypair, usecases.TempAssetKeypair}, masterKp, masterAccount, helpers.RandomHorizon())
 	if err != nil {
 		hError := err.(*horizonclient.Error)
-		log.Println("Error submitting transaction:", hError.Problem.Extras["result_codes"])
+		log.Println("Error submitting create auxiliary accounts tx:", hError.Problem.Extras["result_codes"])
 	}
 	if res != nil {
 		log.Println(res.Successful)
@@ -97,8 +99,15 @@ func main() {
 			hError := result.Error.(*horizonclient.Error)
 			log.Println("Error submitting transaction:", hError.Problem.Extras["result_codes"])
 		}
+
+		physicType := usecases.TEMP
+		if rand.Intn(2) == 0 {
+			physicType = usecases.HUMD
+		}
+
 		iotDevices[i] = IotDevice{
 			deviceId:      i,
+			physicsType:   physicType,
 			server:        helpers.RandomStellarCoreUrl(),
 			horizon:       helpers.RandomHorizon(),
 			batchAddress:  batchKeypair.Address(),
@@ -167,7 +176,7 @@ func sendLogTx(params IotDevice, eventIndex int) SendLogResult {
 		return SendLogResult{Error: err}
 	}
 
-	logValue := usecases.RandomTemperature(params.index + params.deviceId)
+	logValue := params.physicsType.RandomValue(params.index + params.deviceId)
 	payload, err := crypto.EncryptToMemo(seqNum+1, params.deviceKeypair, params.batchAddress, logValue)
 	memo := txnbuild.MemoHash(*payload)
 
@@ -176,7 +185,7 @@ func sendLogTx(params IotDevice, eventIndex int) SendLogResult {
 		IncrementSequenceNum: true,
 		Operations: []txnbuild.Operation{&txnbuild.Payment{
 			Destination: params.batchAddress,
-			Asset:       txnbuild.NativeAsset{},
+			Asset:       params.physicsType.Asset(),
 			Amount:      "0.0000001",
 		}},
 		Memo:       memo,
