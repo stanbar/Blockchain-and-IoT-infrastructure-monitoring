@@ -14,12 +14,10 @@ const (
 )
 
 var TempAssetName = utils.MustGetenv("TEMP_ASSET_NAME")
-var TempAssetIssuer = utils.MustGetenv("TEMP_ASSET_ISSUER_PUBLIC")
-var TempAssetKeypair = keypair.MustParseFull(utils.MustGetenv("TEMP_ASSET_ISSUER_SECRET"))
-
 var HumdAssetName = utils.MustGetenv("HUMD_ASSET_NAME")
-var HumdAssetIssuer = utils.MustGetenv("HUMD_ASSET_ISSUER_PUBLIC")
-var HumdAssetKeypair = keypair.MustParseFull(utils.MustGetenv("HUMD_ASSET_ISSUER_SECRET"))
+
+var AssetKeypair = keypair.MustParseFull(utils.MustGetenv("ASSET_ISSUER_SECRET"))
+var AssetIssuer = utils.MustGetenv("ASSET_ISSUER_PUBLIC")
 
 func (pt PhysicsType) RandomValue(offset int) [32]byte {
 	if pt == TEMP {
@@ -30,7 +28,7 @@ func (pt PhysicsType) RandomValue(offset int) [32]byte {
 
 func (pt PhysicsType) Asset() txnbuild.Asset {
 	if pt == TEMP {
-		return txnbuild.CreditAsset{Code: TempAssetName, Issuer: TempAssetIssuer}
+		return txnbuild.CreditAsset{Code: TempAssetName, Issuer: AssetIssuer}
 	}
-	return txnbuild.CreditAsset{Code: HumdAssetName, Issuer: HumdAssetIssuer}
+	return txnbuild.CreditAsset{Code: HumdAssetName, Issuer: AssetIssuer}
 }

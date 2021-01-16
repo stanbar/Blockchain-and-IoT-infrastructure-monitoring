@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -23,39 +25,20 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	keypairs := helpers.DevicesKeypairs()
 	masterAccount, err := helpers.LoadMasterAccount()
+	batchAcc, err := helpers.LoadAccount(helpers.BatchKeypair.Address())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	res, err := createAccounts([]*keypair.Full{helpers.BatchKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon())
-	if err != nil {
-		hError, ok := err.(*horizonclient.Error)
-		if ok {
-			log.Println("Error submitting create batch account tx:", hError.Problem.Extras["result_codes"])
-		} else {
-			log.Println("Error submitting create batch account tx:", err)
-		}
-	}
-	if res != nil {
-		log.Println(res.Successful)
-	}
-
-	res, err = createAccounts([]*keypair.Full{usecases.HumdAssetKeypair, usecases.TempAssetKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon())
-	if err != nil {
-		hError, ok := err.(*horizonclient.Error)
-		if ok {
-			log.Println("Error submitting create auxiliary accounts tx:", hError.Problem.Extras["result_codes"])
-		} else {
-			log.Println("Error submitting create auxiliary accounts tx:", err)
-		}
-	}
-	if res != nil {
-		log.Println(res.Successful)
-	}
+	createAccountSilently("batch", []*keypair.Full{helpers.BatchKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon())
+	createAccountSilently("asset", []*keypair.Full{usecases.AssetKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon())
 
 	createSensorAccounts(keypairs, masterAccount)
+
 	iotDevices := generator.CreateSensorDevices(keypairs)
-	fundTokensToSensors(keypairs)
+	createReceiverTrustlines(batchAcc, helpers.BatchKeypair, masterAccount)
+	createAssetTrustlines(iotDevices, masterAccount)
+	fundTokensToSensors(iotDevices, masterAccount)
 
 	var wg sync.WaitGroup
 	for _, iotDevice := range iotDevices {
@@ -96,9 +79,131 @@ func createSensorAccounts(keypairs []*keypair.Full, masterAccount *horizon.Accou
 	}
 }
 
-func fundTokensToSensors(keypairs []*keypair.Full) {
-	//TODO
+func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *keypair.Full, sourceAcc *horizon.Account) (*horizon.Transaction, error) {
+	ops := []txnbuild.Operation{&txnbuild.ChangeTrust{
+		Line:          usecases.TEMP.Asset(),
+		SourceAccount: receiverAcc,
+		Limit:         strconv.Itoa(math.MaxInt64),
+	}, &txnbuild.ChangeTrust{
+		Line:          usecases.HUMD.Asset(),
+		SourceAccount: receiverAcc,
+		Limit:         strconv.Itoa(math.MaxInt64),
+	}}
 
+	txParams := txnbuild.TransactionParams{
+		SourceAccount:        sourceAcc,
+		IncrementSequenceNum: true,
+		Operations:           ops,
+		Timebounds:           txnbuild.NewTimeout(120),
+		BaseFee:              100,
+	}
+
+	tx, err := txnbuild.NewTransaction(txParams)
+	if err != nil {
+		return nil, err
+	}
+
+	signedTx, err := tx.Sign(helpers.NetworkPassphrase, helpers.MasterKp)
+	if err != nil {
+		return nil, err
+	}
+
+	signedTx, err = tx.Sign(helpers.NetworkPassphrase, receiverKeypair)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Println("Submitting fundTokensToSensors transaction")
+	response, err := helpers.RandomHorizon().SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
+	return &response, err
+
+}
+
+func createAssetTrustlines(devices []generator.SensorDevice, sourceAcc *horizon.Account) (*horizon.Transaction, error) {
+	fundAccountsOps := make([]txnbuild.Operation, len(devices))
+	for i, v := range devices {
+		fundAccountsOps[i] = &txnbuild.ChangeTrust{
+			Line:          v.PhysicsType.Asset(),
+			SourceAccount: v.Account,
+			Limit:         strconv.Itoa(math.MaxInt64),
+		}
+	}
+	txParams := txnbuild.TransactionParams{
+		SourceAccount:        sourceAcc,
+		IncrementSequenceNum: true,
+		Operations:           fundAccountsOps,
+		Timebounds:           txnbuild.NewTimeout(120),
+		BaseFee:              100,
+	}
+
+	tx, err := txnbuild.NewTransaction(txParams)
+	if err != nil {
+		return nil, err
+	}
+
+	signedTx, err := tx.Sign(helpers.NetworkPassphrase, helpers.MasterKp)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range devices {
+		signedTx, err = tx.Sign(helpers.NetworkPassphrase, v.DeviceKeypair)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	log.Println("Submitting fundTokensToSensors transaction")
+	response, err := helpers.RandomHorizon().SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
+	return &response, err
+}
+
+func fundTokensToSensors(devices []generator.SensorDevice, sourceAcc *horizon.Account) (*horizon.Transaction, error) {
+	fundAccountsOps := make([]txnbuild.Operation, len(devices))
+
+	for i, v := range devices {
+		fundAccountsOps[i] = &txnbuild.Payment{
+			Asset:         v.PhysicsType.Asset(),
+			Destination:   v.Account.AccountID,
+			SourceAccount: v.Account,
+			Amount:        strconv.Itoa(math.MaxInt64 / len(devices)),
+		}
+	}
+
+	txParams := txnbuild.TransactionParams{
+		SourceAccount:        sourceAcc,
+		IncrementSequenceNum: true,
+		Operations:           fundAccountsOps,
+		Timebounds:           txnbuild.NewTimeout(120),
+		BaseFee:              100,
+	}
+
+	tx, err := txnbuild.NewTransaction(txParams)
+	if err != nil {
+		return nil, err
+	}
+
+	signedTx, err := tx.Sign(helpers.NetworkPassphrase, usecases.AssetKeypair)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Println("Submitting fundTokensToSensors transaction")
+	response, err := helpers.RandomHorizon().SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
+	return &response, err
+}
+
+func createAccountSilently(what string, kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon.Account, client *horizonclient.Client) {
+	_, err := createAccounts(kp, signer, sourceAcc, client)
+	if err != nil {
+		hError, ok := err.(*horizonclient.Error)
+		if ok {
+			log.Printf("Error submitting create %s account tx: %s\n", what, hError.Problem.Extras["result_codes"])
+		} else {
+			log.Printf("Error submitting create %s account tx: %s\n", what, err)
+		}
+	} else {
+		log.Printf("Successfully created %s", what)
+	}
 }
 
 func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon.Account, client *horizonclient.Client) (*horizon.Transaction, error) {

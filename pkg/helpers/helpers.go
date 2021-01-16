@@ -59,10 +59,10 @@ func RandomStellarCoreUrl() string {
 }
 
 func LoadMasterAccount() (*horizon.Account, error) {
-	return loadAccount(MasterKp.Address())
+	return LoadAccount(MasterKp.Address())
 }
 
-func loadAccount(accountId string) (*horizon.Account, error) {
+func LoadAccount(accountId string) (*horizon.Account, error) {
 	accReq := horizonclient.AccountRequest{AccountID: accountId}
 	masterAccount, err := RandomHorizon().AccountDetail(accReq)
 	if err != nil {
