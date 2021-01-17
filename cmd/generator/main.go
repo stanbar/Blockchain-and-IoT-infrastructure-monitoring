@@ -39,7 +39,11 @@ func main() {
 
 	iotDevices := generator.CreateSensorDevices(keypairs)
 	handleGracefuly(createReceiverTrustlines(batchAcc, helpers.BatchKeypair))
-	handleGracefuly(createAssetTrustlines(iotDevices, masterAccount))
+
+	chunks := ChunkDevices(iotDevices, 19) // Stellar allows up to 20 signatures, and 1 is reserved to master
+	for _, chunk := range chunks {
+		handleGracefuly(createAssetTrustlines(chunk, masterAccount))
+	}
 	handleGracefuly(fundTokensToSensors(iotDevices, assetAccount, usecases.AssetKeypair))
 
 	var wg sync.WaitGroup
@@ -70,9 +74,9 @@ func handleGracefuly(resp *horizon.Transaction, err error) {
 		hError, ok := err.(*horizonclient.Error)
 		if ok {
 			if hError.Problem.Extras["result_codes"] != nil {
-				log.Printf("Error submitting tx: %s\n", hError.Problem.Extras["result_codes"])
+				log.Printf("Error submitting tx result_codes: %s\n", hError.Problem.Extras["result_codes"])
 			} else if hError.Problem.Extras["envelope_xdr"] != nil {
-				log.Printf("Error submitting tx: %s\n", hError.Problem.Extras["envelope_xdr"])
+				log.Printf("Error submitting tx envelope_xdr: %s\n", hError.Problem.Extras["envelope_xdr"])
 			} else if hError != nil {
 				log.Printf("Error submitting tx: %v %s\n", hError, hError.Problem)
 			}
@@ -159,6 +163,23 @@ func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *key
 
 }
 
+func ChunkDevices(slice []generator.SensorDevice, chunkSize int) [][]generator.SensorDevice {
+	var chunks [][]generator.SensorDevice
+	for {
+		if len(slice) == 0 {
+			break
+		}
+		// necessary check to avoid slicing beyond
+		// slice capacity
+		if len(slice) < chunkSize {
+			chunkSize = len(slice)
+		}
+		chunks = append(chunks, slice[0:chunkSize])
+		slice = slice[chunkSize:]
+	}
+	return chunks
+}
+
 func createAssetTrustlines(devices []generator.SensorDevice, masterAcc *horizon.Account) (*horizon.Transaction, error) {
 	fundAccountsOps := make([]txnbuild.Operation, len(devices))
 	for i, v := range devices {
@@ -181,12 +202,12 @@ func createAssetTrustlines(devices []generator.SensorDevice, masterAcc *horizon.
 	}
 
 	signers := make([]*keypair.Full, len(devices)+1)
+	signers[0] = helpers.MasterKp
 	for i, v := range devices {
-		signers[i] = v.DeviceKeypair
+		signers[i+1] = v.DeviceKeypair
 	}
-	signers[len(devices)] = helpers.MasterKp
 
-	signedTx, err := tx.Sign(helpers.NetworkPassphrase, signers[:]...)
+	signedTx, err := tx.Sign(helpers.NetworkPassphrase, signers...)
 	if err != nil {
 		return nil, err
 	}
