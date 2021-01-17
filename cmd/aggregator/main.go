@@ -10,6 +10,8 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellot/stellot-iot/pkg/crypto"
+	"github.com/stellot/stellot-iot/pkg/helpers"
+	"github.com/stellot/stellot-iot/pkg/usecases"
 	"github.com/stellot/stellot-iot/pkg/utils"
 )
 
@@ -26,11 +28,15 @@ func main() {
 
 	defer dbpool.Close()
 
-	rows, err := dbpool.Query(context.Background(), "SELECT txid, txbody FROM txhistory")
+	rows, err := dbpool.Query(context.Background(), "SELECT txid, txbody, ledgerseq, txindex, txresult, txmeta FROM txhistory LIMIT 500")
 	for rows.Next() {
 		var txid string
 		var txbody string
-		err := rows.Scan(&txid, &txbody)
+		var ledgerseq int
+		var txindex int
+		var txresult string
+		var txmeta string
+		err := rows.Scan(&txid, &txbody, &ledgerseq, &txindex, &txresult, &txmeta)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -42,22 +48,21 @@ func main() {
 		if !ok {
 			log.Fatal("Can not get simple transaction")
 		}
-		srcAccount := tx.SourceAccount()
-		genericMemo, ok := tx.Memo().(txnbuild.MemoHash)
-		if !ok {
-			log.Println("Can not cast memo to MemoHash")
-			continue
+		ops := tx.Operations()
+		for _, op := range ops {
+			val, ok := op.(*txnbuild.Payment)
+			if !ok {
+				log.Println("Tx is not payment")
+			} else {
+				if val.Destination == helpers.BatchKeypair.Address() {
+					log.Println("Sent to batch address")
+					if val.Asset == usecases.TEMP.Asset() || val.Asset == usecases.HUMD.Asset() {
+						log.Printf("Sent %s TEMP or HUMD\n", val.Amount)
+						proceed(tx, val)
+					}
+				}
+			}
 		}
-		memo := txnbuild.MemoHash(genericMemo)
-		seqNumber, err := srcAccount.GetSequenceNumber()
-		if err != nil {
-			log.Fatal(err)
-		}
-		decrypted, err := crypto.EncryptToMemo(seqNumber, batchKeypair, srcAccount.GetAccountID(), memo)
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Println("decrypted memo:", string(decrypted[:]))
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "QueryRow failed: %v\n", err)
@@ -65,4 +70,23 @@ func main() {
 	} else {
 		log.Println("Done")
 	}
+}
+
+func proceed(tx *txnbuild.Transaction, op *txnbuild.Payment) {
+	srcAccount := tx.SourceAccount()
+	genericMemo, ok := tx.Memo().(txnbuild.MemoHash)
+	if !ok {
+		log.Println("Can not cast memo to MemoHash")
+		return
+	}
+	memo := txnbuild.MemoHash(genericMemo)
+	seqNumber, err := srcAccount.GetSequenceNumber()
+	if err != nil {
+		log.Fatal(err)
+	}
+	decrypted, err := crypto.EncryptToMemo(seqNumber, batchKeypair, srcAccount.GetAccountID(), memo)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("decrypted memo:", string(decrypted[:]))
 }
