@@ -58,6 +58,7 @@ func main() {
 					log.Println("Sent to batch address")
 					if val.Asset == usecases.TEMP.Asset() || val.Asset == usecases.HUMD.Asset() {
 						log.Printf("Sent %s TEMP or HUMD\n", val.Amount)
+						log.Printf("txid %s, ledgerseq %d, txindex %d\n", txid, ledgerseq, txindex)
 						proceed(tx, val)
 					}
 				}
