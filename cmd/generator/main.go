@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"math"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -30,15 +29,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	createAccountSilently("batch", []*keypair.Full{helpers.BatchKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon())
-	createAccountSilently("asset", []*keypair.Full{usecases.AssetKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon())
-
-	createSensorAccounts(keypairs, masterAccount)
+	handleGracefuly(createAccounts([]*keypair.Full{helpers.BatchKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon()))
+	handleGracefuly(createAccounts([]*keypair.Full{usecases.AssetKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon()))
+	createSensorAccountsSilently(keypairs, masterAccount)
 
 	iotDevices := generator.CreateSensorDevices(keypairs)
-	createReceiverTrustlines(batchAcc, helpers.BatchKeypair, masterAccount)
-	createAssetTrustlines(iotDevices, masterAccount)
-	fundTokensToSensors(iotDevices, masterAccount)
+	handleGracefuly(createReceiverTrustlines(batchAcc, helpers.BatchKeypair, batchAcc))
+	handleGracefuly(createAssetTrustlines(iotDevices, masterAccount))
+	handleGracefuly(fundTokensToSensors(iotDevices, masterAccount))
 
 	var wg sync.WaitGroup
 	for _, iotDevice := range iotDevices {
@@ -63,19 +61,10 @@ func main() {
 	log.Println("Main: Completed")
 }
 
-func createSensorAccounts(keypairs []*keypair.Full, masterAccount *horizon.Account) {
+func createSensorAccountsSilently(keypairs []*keypair.Full, masterAccount *horizon.Account) {
 	chunks := utils.ChunkKeypairs(keypairs, 100)
 	for _, chunk := range chunks {
-		res, err := createAccounts(chunk, helpers.MasterKp, masterAccount, helpers.RandomHorizon())
-		if err != nil {
-			hError, ok := err.(*horizonclient.Error)
-			if ok {
-				log.Println("Error submitting transaction:", hError.Problem.Extras)
-			}
-		}
-		if res != nil {
-			log.Println(res.Successful)
-		}
+		handleGracefuly(createAccounts(chunk, helpers.MasterKp, masterAccount, helpers.RandomHorizon()))
 	}
 }
 
@@ -83,11 +72,9 @@ func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *key
 	ops := []txnbuild.Operation{&txnbuild.ChangeTrust{
 		Line:          usecases.TEMP.Asset(),
 		SourceAccount: receiverAcc,
-		Limit:         strconv.Itoa(math.MaxInt64),
 	}, &txnbuild.ChangeTrust{
 		Line:          usecases.HUMD.Asset(),
 		SourceAccount: receiverAcc,
-		Limit:         strconv.Itoa(math.MaxInt64),
 	}}
 
 	txParams := txnbuild.TransactionParams{
@@ -113,7 +100,7 @@ func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *key
 		return nil, err
 	}
 
-	log.Println("Submitting fundTokensToSensors transaction")
+	log.Println("Submitting createReceiverTrustlines transaction")
 	response, err := helpers.RandomHorizon().SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
 	return &response, err
 
@@ -125,7 +112,6 @@ func createAssetTrustlines(devices []generator.SensorDevice, sourceAcc *horizon.
 		fundAccountsOps[i] = &txnbuild.ChangeTrust{
 			Line:          v.PhysicsType.Asset(),
 			SourceAccount: v.Account,
-			Limit:         strconv.Itoa(math.MaxInt64),
 		}
 	}
 	txParams := txnbuild.TransactionParams{
@@ -141,18 +127,18 @@ func createAssetTrustlines(devices []generator.SensorDevice, sourceAcc *horizon.
 		return nil, err
 	}
 
-	signedTx, err := tx.Sign(helpers.NetworkPassphrase, helpers.MasterKp)
+	signers := make([]*keypair.Full, len(devices)+1)
+	for i, v := range devices {
+		signers[i] = v.DeviceKeypair
+	}
+	signers[len(devices)] = helpers.MasterKp
+
+	signedTx, err := tx.Sign(helpers.NetworkPassphrase, signers[:]...)
 	if err != nil {
 		return nil, err
 	}
-	for _, v := range devices {
-		signedTx, err = tx.Sign(helpers.NetworkPassphrase, v.DeviceKeypair)
-		if err != nil {
-			return nil, err
-		}
-	}
 
-	log.Println("Submitting fundTokensToSensors transaction")
+	log.Println("Submitting createAssetTrustlines transaction")
 	response, err := helpers.RandomHorizon().SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
 	return &response, err
 }
@@ -160,12 +146,19 @@ func createAssetTrustlines(devices []generator.SensorDevice, sourceAcc *horizon.
 func fundTokensToSensors(devices []generator.SensorDevice, sourceAcc *horizon.Account) (*horizon.Transaction, error) {
 	fundAccountsOps := make([]txnbuild.Operation, len(devices))
 
+	maxValue, err := strconv.ParseInt("9223372036854775807", 10, 64)
+	if err != nil {
+		log.Fatal("Can not parse max asset value")
+	}
+	amount := strconv.FormatInt(maxValue/int64(len(devices)), 10)
+	separatorIndex := len(amount) - 7
+
 	for i, v := range devices {
 		fundAccountsOps[i] = &txnbuild.Payment{
 			Asset:         v.PhysicsType.Asset(),
 			Destination:   v.Account.AccountID,
-			SourceAccount: v.Account,
-			Amount:        strconv.Itoa(math.MaxInt64 / len(devices)),
+			SourceAccount: sourceAcc,
+			Amount:        amount[:separatorIndex] + "." + amount[separatorIndex:],
 		}
 	}
 
@@ -193,16 +186,19 @@ func fundTokensToSensors(devices []generator.SensorDevice, sourceAcc *horizon.Ac
 }
 
 func createAccountSilently(what string, kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon.Account, client *horizonclient.Client) {
-	_, err := createAccounts(kp, signer, sourceAcc, client)
+
+}
+
+func handleGracefuly(resp *horizon.Transaction, err error) {
 	if err != nil {
 		hError, ok := err.(*horizonclient.Error)
 		if ok {
-			log.Printf("Error submitting create %s account tx: %s\n", what, hError.Problem.Extras["result_codes"])
+			log.Printf("Error submitting tx: %s\n", hError.Problem.Extras["result_codes"])
 		} else {
-			log.Printf("Error submitting create %s account tx: %s\n", what, err)
+			log.Printf("Error submitting tx: %s\n", err)
 		}
 	} else {
-		log.Printf("Successfully created %s", what)
+		log.Println("Successfully submitted tx")
 	}
 }
 
