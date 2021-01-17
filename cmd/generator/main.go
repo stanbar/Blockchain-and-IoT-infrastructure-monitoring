@@ -24,6 +24,11 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	keypairs := helpers.DevicesKeypairs()
 	masterAccount, err := helpers.LoadMasterAccount()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	handleGracefuly(createAccounts([]*keypair.Full{helpers.BatchKeypair, usecases.AssetKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon()))
 	batchAcc, err := helpers.LoadAccount(helpers.BatchKeypair.Address())
 	if err != nil {
 		log.Fatal(err)
@@ -33,8 +38,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	handleGracefuly(createAccounts([]*keypair.Full{helpers.BatchKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon()))
-	handleGracefuly(createAccounts([]*keypair.Full{usecases.AssetKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon()))
 	createSensorAccountsSilently(keypairs, masterAccount)
 
 	iotDevices := generator.CreateSensorDevices(keypairs)
