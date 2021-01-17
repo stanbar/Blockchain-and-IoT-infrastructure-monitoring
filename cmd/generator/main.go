@@ -71,8 +71,10 @@ func handleGracefuly(resp *horizon.Transaction, err error) {
 		if ok {
 			if hError.Problem.Extras["result_codes"] != nil {
 				log.Printf("Error submitting tx: %s\n", hError.Problem.Extras["result_codes"])
+			} else if hError.Problem.Extras["envelope_xdr"] != nil {
+				log.Printf("Error submitting tx: %s\n", hError.Problem.Extras["envelope_xdr"])
 			} else if hError != nil {
-				log.Printf("Error submitting tx: %v %v\n", hError, hError.Problem)
+				log.Printf("Error submitting tx: %v %s\n", hError, hError.Problem)
 			}
 		} else {
 			log.Printf("Error submitting tx: %s\n", err)
@@ -188,8 +190,6 @@ func createAssetTrustlines(devices []generator.SensorDevice, masterAcc *horizon.
 	if err != nil {
 		return nil, err
 	}
-	log.Println(signedTx.Base64())
-
 	log.Println("Submitting createAssetTrustlines transaction")
 	response, err := helpers.RandomHorizon().SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
 	return &response, err
