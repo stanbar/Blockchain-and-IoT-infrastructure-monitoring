@@ -65,11 +65,58 @@ func main() {
 	log.Println("Main: Completed")
 }
 
+func handleGracefuly(resp *horizon.Transaction, err error) {
+	if err != nil {
+		hError, ok := err.(*horizonclient.Error)
+		if ok {
+			if hError.Problem.Extras["result_codes"] != nil {
+				log.Printf("Error submitting tx: %s\n", hError.Problem.Extras["result_codes"])
+			} else if hError != nil {
+				log.Printf("Error submitting tx: %v %v\n", hError, hError.Problem)
+			}
+		} else {
+			log.Printf("Error submitting tx: %s\n", err)
+		}
+	} else {
+		log.Println("Successfully submitted tx")
+	}
+}
+
 func createSensorAccountsSilently(keypairs []*keypair.Full, masterAccount *horizon.Account) {
 	chunks := utils.ChunkKeypairs(keypairs, 100)
 	for _, chunk := range chunks {
 		handleGracefuly(createAccounts(chunk, helpers.MasterKp, masterAccount, helpers.RandomHorizon()))
 	}
+}
+
+func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon.Account, client *horizonclient.Client) (*horizon.Transaction, error) {
+	createAccountOps := make([]txnbuild.Operation, len(kp))
+
+	for i, v := range kp {
+		createAccountOps[i] = &txnbuild.CreateAccount{
+			Destination: v.Address(),
+			Amount:      "10",
+		}
+	}
+	txParams := txnbuild.TransactionParams{
+		SourceAccount:        sourceAcc,
+		IncrementSequenceNum: true,
+		Operations:           createAccountOps,
+		Timebounds:           txnbuild.NewTimeout(120),
+		BaseFee:              100,
+	}
+
+	tx, err := txnbuild.NewTransaction(txParams)
+	if err != nil {
+		return nil, err
+	}
+	signedTx, err := tx.Sign(helpers.NetworkPassphrase, signer)
+	if err != nil {
+		return nil, err
+	}
+	log.Println("Submitting createAccount transaction")
+	response, err := client.SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
+	return &response, err
 }
 
 func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *keypair.Full) (*horizon.Transaction, error) {
@@ -188,56 +235,5 @@ func fundTokensToSensors(devices []generator.SensorDevice, assetAccount *horizon
 
 	log.Println("Submitting fundTokensToSensors transaction")
 	response, err := helpers.RandomHorizon().SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
-	return &response, err
-}
-
-func createAccountSilently(what string, kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon.Account, client *horizonclient.Client) {
-
-}
-
-func handleGracefuly(resp *horizon.Transaction, err error) {
-	if err != nil {
-		hError, ok := err.(*horizonclient.Error)
-		if ok {
-			if hError.Problem.Extras["result_codes"] != nil {
-				log.Printf("Error submitting tx: %s\n", hError.Problem.Extras["result_codes"])
-			} else if hError != nil {
-				log.Printf("Error submitting tx: %v %v\n", hError, hError.Problem)
-			}
-		} else {
-			log.Printf("Error submitting tx: %s\n", err)
-		}
-	} else {
-		log.Println("Successfully submitted tx")
-	}
-}
-
-func createAccounts(kp []*keypair.Full, signer *keypair.Full, sourceAcc *horizon.Account, client *horizonclient.Client) (*horizon.Transaction, error) {
-	createAccountOps := make([]txnbuild.Operation, len(kp))
-
-	for i, v := range kp {
-		createAccountOps[i] = &txnbuild.CreateAccount{
-			Destination: v.Address(),
-			Amount:      "10",
-		}
-	}
-	txParams := txnbuild.TransactionParams{
-		SourceAccount:        sourceAcc,
-		IncrementSequenceNum: true,
-		Operations:           createAccountOps,
-		Timebounds:           txnbuild.NewTimeout(120),
-		BaseFee:              100,
-	}
-
-	tx, err := txnbuild.NewTransaction(txParams)
-	if err != nil {
-		return nil, err
-	}
-	signedTx, err := tx.Sign(helpers.NetworkPassphrase, signer)
-	if err != nil {
-		return nil, err
-	}
-	log.Println("Submitting createAccount transaction")
-	response, err := client.SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
 	return &response, err
 }
