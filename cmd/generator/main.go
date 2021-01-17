@@ -28,15 +28,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	assetAccount, err := helpers.LoadAccount(usecases.AssetIssuer)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	handleGracefuly(createAccounts([]*keypair.Full{helpers.BatchKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon()))
 	handleGracefuly(createAccounts([]*keypair.Full{usecases.AssetKeypair}, helpers.MasterKp, masterAccount, helpers.RandomHorizon()))
 	createSensorAccountsSilently(keypairs, masterAccount)
 
 	iotDevices := generator.CreateSensorDevices(keypairs)
-	handleGracefuly(createReceiverTrustlines(batchAcc, helpers.BatchKeypair, batchAcc))
+	handleGracefuly(createReceiverTrustlines(batchAcc, helpers.BatchKeypair))
 	handleGracefuly(createAssetTrustlines(iotDevices, masterAccount))
-	handleGracefuly(fundTokensToSensors(iotDevices, masterAccount))
+	handleGracefuly(fundTokensToSensors(iotDevices, assetAccount, usecases.AssetKeypair))
 
 	var wg sync.WaitGroup
 	for _, iotDevice := range iotDevices {
@@ -68,7 +72,7 @@ func createSensorAccountsSilently(keypairs []*keypair.Full, masterAccount *horiz
 	}
 }
 
-func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *keypair.Full, sourceAcc *horizon.Account) (*horizon.Transaction, error) {
+func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *keypair.Full) (*horizon.Transaction, error) {
 	ops := []txnbuild.Operation{&txnbuild.ChangeTrust{
 		Line:          usecases.TEMP.Asset(),
 		SourceAccount: receiverAcc,
@@ -78,7 +82,7 @@ func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *key
 	}}
 
 	txParams := txnbuild.TransactionParams{
-		SourceAccount:        sourceAcc,
+		SourceAccount:        receiverAcc,
 		IncrementSequenceNum: true,
 		Operations:           ops,
 		Timebounds:           txnbuild.NewTimeout(120),
@@ -106,7 +110,7 @@ func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *key
 
 }
 
-func createAssetTrustlines(devices []generator.SensorDevice, sourceAcc *horizon.Account) (*horizon.Transaction, error) {
+func createAssetTrustlines(devices []generator.SensorDevice, masterAcc *horizon.Account) (*horizon.Transaction, error) {
 	fundAccountsOps := make([]txnbuild.Operation, len(devices))
 	for i, v := range devices {
 		fundAccountsOps[i] = &txnbuild.ChangeTrust{
@@ -115,7 +119,7 @@ func createAssetTrustlines(devices []generator.SensorDevice, sourceAcc *horizon.
 		}
 	}
 	txParams := txnbuild.TransactionParams{
-		SourceAccount:        sourceAcc,
+		SourceAccount:        masterAcc,
 		IncrementSequenceNum: true,
 		Operations:           fundAccountsOps,
 		Timebounds:           txnbuild.NewTimeout(120),
@@ -137,15 +141,18 @@ func createAssetTrustlines(devices []generator.SensorDevice, sourceAcc *horizon.
 	if err != nil {
 		return nil, err
 	}
+	log.Println(signedTx.Base64())
 
 	log.Println("Submitting createAssetTrustlines transaction")
 	response, err := helpers.RandomHorizon().SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
 	return &response, err
 }
 
-func fundTokensToSensors(devices []generator.SensorDevice, sourceAcc *horizon.Account) (*horizon.Transaction, error) {
-	fundAccountsOps := make([]txnbuild.Operation, len(devices))
+func fundTokensToSensors(devices []generator.SensorDevice, assetAccount *horizon.Account, assetKeypair *keypair.Full) (*horizon.Transaction, error) {
+	ops := make([]txnbuild.Operation, len(devices))
 
+	// https://developers.stellar.org/docs/issuing-assets/anatomy-of-an-asset/#amount-precision
+	// ((2^63)-1)/(10^7) = 922,337,203,685.4775807
 	maxValue, err := strconv.ParseInt("9223372036854775807", 10, 64)
 	if err != nil {
 		log.Fatal("Can not parse max asset value")
@@ -154,18 +161,17 @@ func fundTokensToSensors(devices []generator.SensorDevice, sourceAcc *horizon.Ac
 	separatorIndex := len(amount) - 7
 
 	for i, v := range devices {
-		fundAccountsOps[i] = &txnbuild.Payment{
-			Asset:         v.PhysicsType.Asset(),
-			Destination:   v.Account.AccountID,
-			SourceAccount: sourceAcc,
-			Amount:        amount[:separatorIndex] + "." + amount[separatorIndex:],
+		ops[i] = &txnbuild.Payment{
+			Asset:       v.PhysicsType.Asset(),
+			Destination: v.Account.AccountID,
+			Amount:      amount[:separatorIndex] + "." + amount[separatorIndex:],
 		}
 	}
 
 	txParams := txnbuild.TransactionParams{
-		SourceAccount:        sourceAcc,
+		SourceAccount:        assetAccount,
 		IncrementSequenceNum: true,
-		Operations:           fundAccountsOps,
+		Operations:           ops,
 		Timebounds:           txnbuild.NewTimeout(120),
 		BaseFee:              100,
 	}
@@ -175,7 +181,7 @@ func fundTokensToSensors(devices []generator.SensorDevice, sourceAcc *horizon.Ac
 		return nil, err
 	}
 
-	signedTx, err := tx.Sign(helpers.NetworkPassphrase, usecases.AssetKeypair)
+	signedTx, err := tx.Sign(helpers.NetworkPassphrase, assetKeypair)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +199,11 @@ func handleGracefuly(resp *horizon.Transaction, err error) {
 	if err != nil {
 		hError, ok := err.(*horizonclient.Error)
 		if ok {
-			log.Printf("Error submitting tx: %s\n", hError.Problem.Extras["result_codes"])
+			if hError.Problem.Extras["result_codes"] != nil {
+				log.Printf("Error submitting tx: %s\n", hError.Problem.Extras["result_codes"])
+			} else if hError != nil {
+				log.Printf("Error submitting tx: %v %v\n", hError, hError.Problem)
+			}
 		} else {
 			log.Printf("Error submitting tx: %s\n", err)
 		}
