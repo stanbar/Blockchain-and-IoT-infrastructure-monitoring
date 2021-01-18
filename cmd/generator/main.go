@@ -163,7 +163,6 @@ func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *key
 	log.Println("Submitting createReceiverTrustlines transaction")
 	response, err := helpers.RandomHorizon().SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
 	return &response, err
-
 }
 
 func ChunkDevices(slice []generator.SensorDevice, chunkSize int) [][]generator.SensorDevice {
