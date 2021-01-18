@@ -92,6 +92,15 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 		log.Printf("Success sending log deviceId %d log no. %d %s", params.DeviceId, eventIndex, string(resp.ResultXdr))
 		return SendLogResult{HorizonResponse: &resp, Error: err}
 	} else if helpers.SendTxTo == "stellar-core" {
+		body, err := bruteForceTransaction(params, xdr, eventIndex)
+		return SendLogResult{HTTPResponseBody: string(body), Error: err}
+	} else {
+		return SendLogResult{Error: errors.New("Unsupported sendTxTo")}
+	}
+}
+
+func bruteForceTransaction(params SensorDevice, xdr string, eventIndex int) (string, error) {
+	for {
 		response, err := sendTxToStellarCore(params.Server, xdr)
 		if err != nil {
 			uError := err.(*url.Error)
@@ -102,14 +111,18 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 		if err != nil {
 			log.Printf("Error reading body of log device: %d log no. %d %v", params.DeviceId, eventIndex, err)
 		} else {
-			log.Printf("Success sending log deviceId %d log no. %d %s", params.DeviceId, eventIndex, string(body))
-			if strings.Contains(string(body), "ERROR") {
-				log.Fatalf("Received ERROR transactioin in deviceId %d log no. %d", params.DeviceId, eventIndex)
+			if !strings.Contains(string(body), "ERROR") {
+				log.Printf("Success sending log deviceId %d log no. %d %s", params.DeviceId, eventIndex, string(body))
+				return string(body), nil
+			} else {
+				if strings.Contains(string(body), "AAAAAAAAAAH////7AAAAAA==") {
+					log.Println("Received bad seq error, Retrying in 1sec")
+					time.Sleep(1 * time.Second)
+				} else {
+					log.Fatalf("Received ERROR transactioin in deviceId %d log no. %d", params.DeviceId, eventIndex)
+				}
 			}
 		}
-		return SendLogResult{HTTPResponseBody: string(body), Error: err}
-	} else {
-		return SendLogResult{Error: errors.New("Unsupported sendTxTo")}
 	}
 }
 
