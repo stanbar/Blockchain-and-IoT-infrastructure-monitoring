@@ -55,7 +55,7 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 			Amount:      "0.0000001",
 		}},
 		Memo:       memo,
-		Timebounds: txnbuild.NewTimeout(helpers.TimeOut),
+		Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix(), txnbuild.TimeoutInfinite),
 		BaseFee:    100,
 	}
 
