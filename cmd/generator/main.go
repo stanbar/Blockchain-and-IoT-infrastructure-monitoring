@@ -141,7 +141,7 @@ func createReceiverTrustlines(receiverAcc *horizon.Account, receiverKeypair *key
 		SourceAccount:        receiverAcc,
 		IncrementSequenceNum: true,
 		Operations:           ops,
-		Timebounds:           txnbuild.NewTimeout(120),
+		Timebounds:           txnbuild.NewTimebounds(time.Now().UTC().Unix(), txnbuild.TimeoutInfinite),
 		BaseFee:              100,
 	}
 
