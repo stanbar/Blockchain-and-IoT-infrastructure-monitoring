@@ -13,11 +13,13 @@ const (
 	HUMD
 )
 
-var TempAssetName = utils.MustGetenv("TEMP_ASSET_NAME")
-var HumdAssetName = utils.MustGetenv("HUMD_ASSET_NAME")
+var (
+	TempAssetName = utils.MustGetenv("TEMP_ASSET_NAME")
+	HumdAssetName = utils.MustGetenv("HUMD_ASSET_NAME")
 
-var AssetKeypair = keypair.MustParseFull(utils.MustGetenv("ASSET_ISSUER_SECRET"))
-var AssetIssuer = utils.MustGetenv("ASSET_ISSUER_PUBLIC")
+	AssetKeypair = keypair.MustParseFull(utils.MustGetenv("USECASES_ASSET_ISSUER_SECRET"))
+	AssetIssuer  = AssetKeypair.Address()
+)
 
 func (pt PhysicsType) RandomValue(offset int) [32]byte {
 	if pt == TEMP {

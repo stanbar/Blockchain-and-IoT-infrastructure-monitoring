@@ -21,15 +21,24 @@ import (
 )
 
 type SensorDevice struct {
-	DeviceId      int
-	LogValue      [32]byte
-	PhysicsType   usecases.PhysicsType
-	Server        string
-	Horizon       *horizonclient.Client
-	DeviceKeypair *keypair.Full
-	Account       *horizon.Account
-	RateLimiter   *rate.Limiter
+	DeviceId    int
+	LogValue    [32]byte
+	PhysicsType usecases.PhysicsType
+	Server      string
+	Horizon     *horizonclient.Client
+	keypair     *keypair.Full
+	account     *horizon.Account
+	RateLimiter *rate.Limiter
 }
+
+func (s SensorDevice) Keypair() *keypair.Full {
+	return s.keypair
+}
+
+func (s SensorDevice) Account() *horizon.Account {
+	return s.account
+}
+
 type SendLogResult struct {
 	HTTPResponseBody string
 	HorizonResponse  *horizon.Transaction
@@ -37,17 +46,17 @@ type SendLogResult struct {
 }
 
 func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
-	seqNum, err := strconv.ParseInt(params.Account.Sequence, 10, 64)
+	seqNum, err := strconv.ParseInt(params.Account().Sequence, 10, 64)
 	if err != nil {
 		return SendLogResult{Error: err}
 	}
 
 	logValue := params.PhysicsType.RandomValue(eventIndex + params.DeviceId)
-	payload, err := crypto.EncryptToMemo(seqNum+1, params.DeviceKeypair, helpers.BatchKeypair.Address(), logValue)
+	payload, err := crypto.EncryptToMemo(seqNum+1, params.Keypair(), helpers.BatchKeypair.Address(), logValue)
 	memo := txnbuild.MemoHash(*payload)
 
 	txParams := txnbuild.TransactionParams{
-		SourceAccount:        params.Account,
+		SourceAccount:        params.Account(),
 		IncrementSequenceNum: true,
 		Operations: []txnbuild.Operation{&txnbuild.Payment{
 			Destination: helpers.BatchKeypair.Address(),
@@ -55,7 +64,7 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 			Amount:      "0.0000001",
 		}},
 		Memo:       memo,
-		Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix(), txnbuild.TimeoutInfinite),
+		Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix()-1, txnbuild.TimeoutInfinite),
 		BaseFee:    100,
 	}
 
@@ -64,7 +73,7 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 		log.Println("Error creating new transaction", err)
 		return SendLogResult{Error: err}
 	}
-	signedTx, err := tx.Sign(helpers.NetworkPassphrase, params.DeviceKeypair)
+	signedTx, err := tx.Sign(helpers.NetworkPassphrase, params.Keypair())
 	if err != nil {
 		log.Println("Error signing transaction", err)
 		return SendLogResult{Error: err}
@@ -141,15 +150,10 @@ func sendTxToStellarCore(server string, xdr string) (resp *http.Response, err er
 	return http.Get(req.URL.String())
 }
 
-type LoadAccountResult struct {
-	Account *horizon.Account
-	Error   error
-}
-
 func CreateSensorDevices(keypairs []*keypair.Full) []SensorDevice {
-	channels := make([]chan LoadAccountResult, len(keypairs))
+	channels := make([]chan helpers.LoadAccountResult, len(keypairs))
 	for i := 0; i < len(channels); i++ {
-		channels[i] = loadAccountChan(keypairs[i].Address())
+		channels[i] = helpers.LoadAccountChan(keypairs[i].Address())
 	}
 
 	iotDevices := make([]SensorDevice, len(keypairs))
@@ -167,28 +171,14 @@ func CreateSensorDevices(keypairs []*keypair.Full) []SensorDevice {
 		}
 
 		iotDevices[i] = SensorDevice{
-			DeviceId:      i,
-			PhysicsType:   physicType,
-			Server:        helpers.RandomStellarCoreUrl(),
-			Horizon:       helpers.RandomHorizon(),
-			DeviceKeypair: keypairs[i],
-			Account:       result.Account,
-			RateLimiter:   rate.NewLimiter(rate.Every(time.Duration(1000.0/helpers.Tps)*time.Millisecond), 1),
+			DeviceId:    i,
+			PhysicsType: physicType,
+			Server:      helpers.RandomStellarCoreUrl(),
+			Horizon:     helpers.RandomHorizon(),
+			keypair:     keypairs[i],
+			account:     result.Account,
+			RateLimiter: rate.NewLimiter(rate.Every(time.Duration(1000.0/helpers.Tps)*time.Millisecond), 1),
 		}
 	}
 	return iotDevices
-}
-
-func loadAccountChan(accountId string) chan LoadAccountResult {
-	ch := make(chan LoadAccountResult)
-	accReq := horizonclient.AccountRequest{AccountID: accountId}
-	go func() {
-		masterAccount, err := helpers.RandomHorizon().AccountDetail(accReq)
-		if err != nil {
-			ch <- LoadAccountResult{Account: nil, Error: err}
-		} else {
-			ch <- LoadAccountResult{Account: &masterAccount, Error: nil}
-		}
-	}()
-	return ch
 }

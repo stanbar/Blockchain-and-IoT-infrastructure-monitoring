@@ -8,19 +8,19 @@ import (
 
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellot/stellot-iot/pkg/crypto"
+	"github.com/stellot/stellot-iot/pkg/functions"
 	"github.com/stellot/stellot-iot/pkg/helpers"
 	"github.com/stellot/stellot-iot/pkg/usecases"
-	"github.com/stellot/stellot-iot/pkg/utils"
 )
 
-var batchKeypair = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
-var databaseUrl = utils.MustGetenv("DATABASE_URL")
-
 func main() {
+	accounts := createTimeIndexAccounts()
+	log.Println("Loaded tmie accounts", accounts)
 
-	dbpool, err := pgxpool.Connect(context.Background(), databaseUrl)
+	dbpool, err := pgxpool.Connect(context.Background(), helpers.DatabaseUrl)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
 		os.Exit(1)
@@ -28,14 +28,16 @@ func main() {
 
 	defer dbpool.Close()
 
-	rows, err := dbpool.Query(context.Background(), "SELECT txid, txbody, ledgerseq, txindex, txresult, txmeta FROM txhistory LIMIT 500")
+	rows, err := dbpool.Query(context.Background(), "SELECT txid, txbody, txhistory.ledgerseq, txindex, txresult, txmeta, closetime FROM txhistory, ledgerheaders WHERE txhistory.ledgerseq = ledgerheaders.ledgerseq LIMIT 500")
 	for rows.Next() {
-		var txid string
-		var txbody string
-		var ledgerseq int
-		var txindex int
-		var txresult string
-		var txmeta string
+		var (
+			txid      string
+			txbody    string
+			ledgerseq int
+			txindex   int
+			txresult  string
+			txmeta    string
+		)
 		err := rows.Scan(&txid, &txbody, &ledgerseq, &txindex, &txresult, &txmeta)
 		if err != nil {
 			log.Fatal(err)
@@ -73,7 +75,47 @@ func main() {
 	}
 }
 
+type TimeIndex struct {
+	keypair *keypair.Full
+	account *horizon.Account
+}
+
+func (t TimeIndex) Keypair() *keypair.Full {
+	return t.keypair
+}
+
+func (t TimeIndex) Account() *horizon.Account {
+	return t.account
+}
+
+func createTimeIndexAccounts() []*horizon.Account {
+	keypairs := []*keypair.Full{helpers.FiveSecondsKeypair, helpers.TenSecondsKeypair, helpers.ThirtySecondsKeypair, helpers.OneMinuteKeypair}
+	helpers.HandleGracefuly(helpers.CreateAccounts(keypairs, helpers.RandomHorizon()))
+
+	channels := make([]chan helpers.LoadAccountResult, len(keypairs))
+	for i := 0; i < len(channels); i++ {
+		channels[i] = helpers.LoadAccountChan(keypairs[i].Address())
+	}
+	accounts := make([]*horizon.Account, len(keypairs))
+	for i := 0; i < len(keypairs); i++ {
+		result := <-channels[i]
+		accounts[i] = result.Account
+	}
+
+	devices := make([]helpers.CreateTrustline, len(keypairs))
+	for i, v := range keypairs {
+		devices[i] = TimeIndex{
+			keypair: v,
+			account: accounts[i],
+		}
+	}
+
+	helpers.HandleGracefuly(helpers.CreateTrustlines(devices, functions.Assets))
+	return accounts
+}
+
 func proceed(tx *txnbuild.Transaction, op *txnbuild.Payment) {
+
 	srcAccount := tx.SourceAccount()
 	genericMemo, ok := tx.Memo().(txnbuild.MemoHash)
 	if !ok {
@@ -85,7 +127,7 @@ func proceed(tx *txnbuild.Transaction, op *txnbuild.Payment) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	decrypted, err := crypto.EncryptToMemo(seqNumber, batchKeypair, srcAccount.GetAccountID(), memo)
+	decrypted, err := crypto.EncryptToMemo(seqNumber, helpers.BatchKeypair, srcAccount.GetAccountID(), memo)
 	if err != nil {
 		log.Fatal(err)
 	}

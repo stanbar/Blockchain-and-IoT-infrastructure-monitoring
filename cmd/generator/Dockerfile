@@ -20,6 +20,7 @@ COPY . .
 # Build the application
 RUN go build -o /bin/app ./cmd/generator
 
-FROM scratch
+FROM alpine
+RUN apk --no-cache add tzdata
 COPY --from=build /bin/app  /
 ENTRYPOINT ["/app"]
