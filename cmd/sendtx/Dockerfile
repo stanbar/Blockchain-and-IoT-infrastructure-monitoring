@@ -18,8 +18,9 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN go build -o /bin/app ./cmd/generator
+RUN go build -o /bin/app ./cmd/sendtx
 
-FROM alpine
+FROM scratch
 COPY --from=build /bin/app  /
 ENTRYPOINT ["/app"]
+

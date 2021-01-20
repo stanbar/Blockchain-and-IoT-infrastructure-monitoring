@@ -1,8 +1,11 @@
 package helpers
 
 import (
+	"io/ioutil"
 	"log"
 	"math/rand"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -69,17 +72,33 @@ func RandomStellarCoreUrl() string {
 	return stellarCoreUrlsSlice[rand.Intn(len(stellarCoreUrlsSlice))]
 }
 
-func LoadMasterAccount() (*horizon.Account, error) {
-	return LoadAccount(MasterKp.Address())
+func MustLoadMasterAccount() *horizon.Account {
+	return MustLoadAccount(MasterKp.Address())
 }
 
-func LoadAccount(accountId string) (*horizon.Account, error) {
+func MustLoadAccount(accountId string) *horizon.Account {
+	log.Printf("Loading account: %s\n", accountId)
 	accReq := horizonclient.AccountRequest{AccountID: accountId}
 	masterAccount, err := RandomHorizon().AccountDetail(accReq)
 	if err != nil {
+		log.Fatal(err)
+	}
+	return &masterAccount
+}
+
+func SendTxToHorizon(horizon *horizonclient.Client, transaction *txnbuild.Transaction) (horizon.Transaction, error) {
+	return horizon.SubmitTransactionWithOptions(transaction, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
+}
+
+func SendTxToStellarCore(server string, xdr string) (resp *http.Response, err error) {
+	req, err := http.NewRequest("GET", server+"/tx", nil)
+	if err != nil {
 		return nil, err
 	}
-	return &masterAccount, nil
+	q := req.URL.Query()
+	q.Add("blob", xdr)
+	req.URL.RawQuery = q.Encode()
+	return http.Get(req.URL.String())
 }
 
 func HandleGracefuly(err error) {
@@ -101,38 +120,16 @@ func HandleGracefuly(err error) {
 	}
 }
 
-func CreateAccounts(kp []*keypair.Full, client *horizonclient.Client) error {
-	masterAccount, err := LoadMasterAccount()
-	if err != nil {
-		log.Fatal(err)
-	}
+func MustCreateAccounts(masterAcc *horizon.Account, kp []*keypair.Full) {
 	createAccountOps := make([]txnbuild.Operation, len(kp))
-
 	for i, v := range kp {
 		createAccountOps[i] = &txnbuild.CreateAccount{
 			Destination: v.Address(),
 			Amount:      "100",
 		}
 	}
-	txParams := txnbuild.TransactionParams{
-		SourceAccount:        masterAccount,
-		IncrementSequenceNum: true,
-		Operations:           createAccountOps,
-		Timebounds:           txnbuild.NewTimeout(120),
-		BaseFee:              100,
-	}
-
-	tx, err := txnbuild.NewTransaction(txParams)
-	if err != nil {
-		return err
-	}
-	signedTx, err := tx.Sign(NetworkPassphrase, MasterKp)
-	if err != nil {
-		return err
-	}
 	log.Println("Submitting createAccount transaction")
-	_, err = client.SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
-	return err
+	MustSendTransactionFromMasterKey(masterAcc, createAccountOps)
 }
 
 type CreateTrustline interface {
@@ -140,50 +137,27 @@ type CreateTrustline interface {
 	Account() *horizon.Account
 }
 
-func CreateTrustlines(accounts []CreateTrustline, assets []txnbuild.Asset) error {
-	masterAcc, err := LoadMasterAccount()
-	if err != nil {
-		return err
-	}
+func TryCreateTrustlines(masterAcc *horizon.Account, accounts []CreateTrustline, assets []txnbuild.Asset) {
 	chunks := chunk(accounts, 19) // Stellar allows up to 20 signatures, and 1 is reserved to master
 	for _, chunk := range chunks {
-		fundAccountsOps := make([]txnbuild.Operation, len(chunk))
+		fundAccountsOps := make([]txnbuild.Operation, len(chunk)*len(assets))
 		for i, account := range chunk {
 			for j, asset := range assets {
-				fundAccountsOps[i+i*j] = &txnbuild.ChangeTrust{
+				log.Println(j + i*len(assets))
+				fundAccountsOps[j+i*len(assets)] = &txnbuild.ChangeTrust{
 					Line:          asset,
 					SourceAccount: account.Account(),
 				}
 			}
 		}
-		txParams := txnbuild.TransactionParams{
-			SourceAccount:        masterAcc,
-			IncrementSequenceNum: true,
-			Operations:           fundAccountsOps,
-			Timebounds:           txnbuild.NewTimeout(120),
-			BaseFee:              100,
-		}
-
-		tx, err := txnbuild.NewTransaction(txParams)
-		if err != nil {
-			return err
-		}
-
-		signers := make([]*keypair.Full, len(chunk)+1)
-		signers[0] = MasterKp
+		signers := make([]*keypair.Full, len(chunk))
 		for i, v := range chunk {
-			signers[i+1] = v.Keypair()
+			signers[i] = v.Keypair()
 		}
 
-		signedTx, err := tx.Sign(NetworkPassphrase, signers...)
-		if err != nil {
-			return err
-		}
 		log.Println("Submitting createTrustlines transaction")
-		_, err = RandomHorizon().SubmitTransactionWithOptions(signedTx, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
-		HandleGracefuly(err)
+		MustSendTransactionFromMasterKey(masterAcc, fundAccountsOps, signers...)
 	}
-	return nil
 }
 
 func chunk(slice []CreateTrustline, chunkSize int) [][]CreateTrustline {
@@ -201,6 +175,55 @@ func chunk(slice []CreateTrustline, chunkSize int) [][]CreateTrustline {
 		slice = slice[chunkSize:]
 	}
 	return chunks
+}
+
+func MustSendTransactionFromMasterKey(masterAcc *horizon.Account, ops []txnbuild.Operation, additionalSigners ...*keypair.Full) {
+
+	txParams := txnbuild.TransactionParams{
+		SourceAccount:        masterAcc,
+		IncrementSequenceNum: true,
+		Operations:           ops,
+		Timebounds:           txnbuild.NewTimeout(120),
+		BaseFee:              100,
+	}
+
+	tx, err := txnbuild.NewTransaction(txParams)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	additionalSigners = append(additionalSigners, MasterKp)
+
+	signedTx, err := tx.Sign(NetworkPassphrase, additionalSigners...)
+	if err != nil {
+		log.Fatal(err)
+	}
+	xdr, err := signedTx.Base64()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println("Submitting MustSendTransactionFromMasterKey transaction")
+	response, err := SendTxToStellarCore(RandomStellarCoreUrl(), xdr)
+	if err != nil {
+		uError := err.(*url.Error)
+		log.Printf("Error sending get request to stellar core %+v\n", uError)
+	}
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Fatalf("Error reading body tx %s", err)
+	} else {
+		if !strings.Contains(string(body), "ERROR") {
+			log.Printf("Success sending tx %s", string(body))
+		} else {
+			if strings.Contains(string(body), "7AAAAAA") {
+				log.Fatal("Received bad seq error")
+			} else {
+				log.Fatalf("Received ERROR transactioin %s %s", err, string(body))
+			}
+		}
+	}
 }
 
 type LoadAccountResult struct {

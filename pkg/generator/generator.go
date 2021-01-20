@@ -13,7 +13,6 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -64,7 +63,7 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 			Amount:      "0.0000001",
 		}},
 		Memo:       memo,
-		Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix()-1, txnbuild.TimeoutInfinite),
+		Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix()-100000, txnbuild.TimeoutInfinite),
 		BaseFee:    100,
 	}
 
@@ -85,7 +84,7 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 	}
 
 	if helpers.SendTxTo == "horizon" {
-		resp, err := sendTxToHorizon(params.Horizon, signedTx)
+		resp, err := helpers.SendTxToHorizon(params.Horizon, signedTx)
 		if err != nil {
 			hError := err.(*horizonclient.Error)
 			if hError.Problem.Extras != nil {
@@ -110,7 +109,7 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 
 func bruteForceTransaction(params SensorDevice, xdr string, eventIndex int) (string, error) {
 	for {
-		response, err := sendTxToStellarCore(params.Server, xdr)
+		response, err := helpers.SendTxToStellarCore(params.Server, xdr)
 		if err != nil {
 			uError := err.(*url.Error)
 			log.Printf("Error sending get request to stellar core %+v\n", uError)
@@ -125,6 +124,8 @@ func bruteForceTransaction(params SensorDevice, xdr string, eventIndex int) (str
 				return string(body), nil
 			} else {
 				if strings.Contains(string(body), "AAAAAAAAAAH////7AAAAAA==") {
+					acc := helpers.MustLoadAccount(params.keypair.Address())
+					params.account = acc
 					log.Println("Received bad seq error, Retrying in 1sec")
 					time.Sleep(1 * time.Second)
 				} else {
@@ -133,21 +134,6 @@ func bruteForceTransaction(params SensorDevice, xdr string, eventIndex int) (str
 			}
 		}
 	}
-}
-
-func sendTxToHorizon(horizon *horizonclient.Client, transaction *txnbuild.Transaction) (horizon.Transaction, error) {
-	return horizon.SubmitTransactionWithOptions(transaction, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
-}
-
-func sendTxToStellarCore(server string, xdr string) (resp *http.Response, err error) {
-	req, err := http.NewRequest("GET", server+"/tx", nil)
-	if err != nil {
-		return nil, err
-	}
-	q := req.URL.Query()
-	q.Add("blob", xdr)
-	req.URL.RawQuery = q.Encode()
-	return http.Get(req.URL.String())
 }
 
 func CreateSensorDevices(keypairs []*keypair.Full) []SensorDevice {

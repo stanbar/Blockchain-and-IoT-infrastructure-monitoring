@@ -17,7 +17,8 @@ import (
 )
 
 func main() {
-	accounts := createTimeIndexAccounts()
+	masterAcc := helpers.MustLoadMasterAccount()
+	accounts := createTimeIndexAccounts(masterAcc)
 	log.Println("Loaded tmie accounts", accounts)
 
 	dbpool, err := pgxpool.Connect(context.Background(), helpers.DatabaseUrl)
@@ -88,9 +89,9 @@ func (t TimeIndex) Account() *horizon.Account {
 	return t.account
 }
 
-func createTimeIndexAccounts() []*horizon.Account {
+func createTimeIndexAccounts(masterAcc *horizon.Account) []*horizon.Account {
 	keypairs := []*keypair.Full{helpers.FiveSecondsKeypair, helpers.TenSecondsKeypair, helpers.ThirtySecondsKeypair, helpers.OneMinuteKeypair}
-	helpers.HandleGracefuly(helpers.CreateAccounts(keypairs, helpers.RandomHorizon()))
+	helpers.MustCreateAccounts(masterAcc, keypairs)
 
 	channels := make([]chan helpers.LoadAccountResult, len(keypairs))
 	for i := 0; i < len(channels); i++ {
@@ -110,7 +111,7 @@ func createTimeIndexAccounts() []*horizon.Account {
 		}
 	}
 
-	helpers.HandleGracefuly(helpers.CreateTrustlines(devices, functions.Assets))
+	helpers.TryCreateTrustlines(masterAcc, devices, functions.Assets)
 	return accounts
 }
 
