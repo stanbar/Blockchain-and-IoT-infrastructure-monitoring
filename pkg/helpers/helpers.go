@@ -226,6 +226,55 @@ func MustSendTransactionFromMasterKey(masterAcc *horizon.Account, ops []txnbuild
 	}
 }
 
+func MustSendTransaction(sourceAcc *horizon.Account, keypair *keypair.Full, ops []txnbuild.Operation, memo txnbuild.MemoHash, additionalSigners ...*keypair.Full) {
+	txParams := txnbuild.TransactionParams{
+		Memo:                 memo,
+		SourceAccount:        sourceAcc,
+		IncrementSequenceNum: true,
+		Operations:           ops,
+		Timebounds:           txnbuild.NewTimeout(120),
+		BaseFee:              100,
+	}
+
+	tx, err := txnbuild.NewTransaction(txParams)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	additionalSigners = append(additionalSigners, keypair)
+
+	signedTx, err := tx.Sign(NetworkPassphrase, additionalSigners...)
+	if err != nil {
+		log.Fatal(err)
+	}
+	xdr, err := signedTx.Base64()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println("Submitting MustSendTransactionFromMasterKey transaction")
+	response, err := SendTxToStellarCore(RandomStellarCoreUrl(), xdr)
+	if err != nil {
+		uError := err.(*url.Error)
+		log.Printf("Error sending get request to stellar core %+v\n", uError)
+	}
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Fatalf("Error reading body tx %s", err)
+	} else {
+		if !strings.Contains(string(body), "ERROR") {
+			log.Printf("Success sending tx %s", string(body))
+		} else {
+			if strings.Contains(string(body), "7AAAAAA") {
+				log.Fatal("Received bad seq error")
+			} else {
+				log.Fatalf("Received ERROR transactioin %s %s", err, string(body))
+			}
+		}
+	}
+}
+
 type LoadAccountResult struct {
 	Account *horizon.Account
 	Error   error

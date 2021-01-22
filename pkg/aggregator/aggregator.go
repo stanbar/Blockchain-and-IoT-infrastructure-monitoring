@@ -7,13 +7,16 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/stellar/go/keypair"
+	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellot/stellot-iot/pkg/crypto"
+	"github.com/stellot/stellot-iot/pkg/functions"
 	"github.com/stellot/stellot-iot/pkg/helpers"
 	"github.com/stellot/stellot-iot/pkg/usecases"
 )
 
-func CalculateFunctionsForLedger(dbpool *pgxpool.Pool, sensorAddress string, ledgerSeq int) (avg int, min int, max int) {
+func CalculateFunctionsForLedger(dbpool *pgxpool.Pool, sensorAddress string, ledgerSeq int64) (avg int, min int, max int) {
 	rows, err := dbpool.Query(context.Background(), "SELECT memo, tx_envelope FROM history_transactions WHERE account = $1 AND ledger_sequence = $2", sensorAddress, ledgerSeq)
 	if err != nil {
 		log.Fatal(err)
@@ -88,12 +91,48 @@ func getLogValue(tx *txnbuild.Transaction, op *txnbuild.Payment) int {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println("decrypted memo:", string(decrypted[:]))
 	decryptedValue := strings.Trim(string(decrypted[:]), string(rune(0)))
+	log.Println("decryptedValue", decryptedValue)
 	intValue, err := strconv.ParseInt(decryptedValue, 10, 32)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println("intValue", intValue)
 	return int(intValue)
+}
+
+func SendAvgTransaction(sourceAcc *horizon.Account, keypair *keypair.Full, avg int, sensorAddress string, startLedger int64, endLedger int64) {
+	sendAggreateMessage(sourceAcc, keypair, avg, functions.AVG, sensorAddress, startLedger, endLedger)
+}
+
+func SendMinTransaction(sourceAcc *horizon.Account, keypair *keypair.Full, avg int, sensorAddress string, startLedger int64, endLedger int64) {
+	sendAggreateMessage(sourceAcc, keypair, avg, functions.MIN, sensorAddress, startLedger, endLedger)
+}
+
+func SendMaxTransaction(sourceAcc *horizon.Account, keypair *keypair.Full, avg int, sensorAddress string, startLedger int64, endLedger int64) {
+	sendAggreateMessage(sourceAcc, keypair, avg, functions.MAX, sensorAddress, startLedger, endLedger)
+}
+
+func sendAggreateMessage(sourceAcc *horizon.Account, keypair *keypair.Full, value int, functionType functions.FunctionType, sensorAddress string, startLedger int64, endLedger int64) {
+	seqNumber, err := sourceAcc.GetSequenceNumber()
+	if err != nil {
+		log.Fatal(err)
+	}
+	var payload [32]byte
+	copy(payload[:], strconv.Itoa(value))
+	cipher, err := crypto.EncryptToMemo(seqNumber+1, keypair, sensorAddress, payload)
+	memo := txnbuild.MemoHash(*cipher)
+
+	ops := []txnbuild.Operation{
+		&txnbuild.BumpSequence{
+			BumpTo: startLedger,
+		},
+		&txnbuild.BumpSequence{
+			BumpTo: endLedger,
+		},
+		&txnbuild.Payment{
+			Asset:       functionType.Asset(),
+			Amount:      "1",
+			Destination: sensorAddress,
+		}}
+	helpers.MustSendTransaction(sourceAcc, keypair, ops, memo)
 }

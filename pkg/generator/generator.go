@@ -54,36 +54,30 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 	payload, err := crypto.EncryptToMemo(seqNum+1, params.Keypair(), helpers.BatchKeypair.Address(), logValue)
 	memo := txnbuild.MemoHash(*payload)
 
-	txParams := txnbuild.TransactionParams{
-		SourceAccount:        params.Account(),
-		IncrementSequenceNum: true,
-		Operations: []txnbuild.Operation{&txnbuild.Payment{
-			Destination: helpers.BatchKeypair.Address(),
-			Asset:       params.PhysicsType.Asset(),
-			Amount:      "0.0000001",
-		}},
-		Memo:       memo,
-		Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix()-100000, txnbuild.TimeoutInfinite),
-		BaseFee:    100,
-	}
-
-	tx, err := txnbuild.NewTransaction(txParams)
-	if err != nil {
-		log.Println("Error creating new transaction", err)
-		return SendLogResult{Error: err}
-	}
-	signedTx, err := tx.Sign(helpers.NetworkPassphrase, params.Keypair())
-	if err != nil {
-		log.Println("Error signing transaction", err)
-		return SendLogResult{Error: err}
-	}
-	xdr, err := signedTx.Base64()
-	if err != nil {
-		log.Println("Error converting to base64", err)
-		return SendLogResult{Error: err}
-	}
-
 	if helpers.SendTxTo == "horizon" {
+		txParams := txnbuild.TransactionParams{
+			SourceAccount:        params.Account(),
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{&txnbuild.Payment{
+				Destination: helpers.BatchKeypair.Address(),
+				Asset:       params.PhysicsType.Asset(),
+				Amount:      "0.0000001",
+			}},
+			Memo:       memo,
+			Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix()-100000, txnbuild.TimeoutInfinite),
+			BaseFee:    100,
+		}
+
+		tx, err := txnbuild.NewTransaction(txParams)
+		if err != nil {
+			log.Println("Error creating new transaction", err)
+			return SendLogResult{Error: err}
+		}
+		signedTx, err := tx.Sign(helpers.NetworkPassphrase, params.Keypair())
+		if err != nil {
+			log.Println("Error signing transaction", err)
+			return SendLogResult{Error: err}
+		}
 		resp, err := helpers.SendTxToHorizon(params.Horizon, signedTx)
 		if err != nil {
 			hError := err.(*horizonclient.Error)
@@ -100,15 +94,36 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 		log.Printf("Success sending log deviceId %d log no. %d %s", params.DeviceId, eventIndex, string(resp.ResultXdr))
 		return SendLogResult{HorizonResponse: &resp, Error: err}
 	} else if helpers.SendTxTo == "stellar-core" {
-		body, err := bruteForceTransaction(params, xdr, eventIndex)
+		body, err := bruteForceTransaction(params, eventIndex, memo)
 		return SendLogResult{HTTPResponseBody: string(body), Error: err}
 	} else {
 		return SendLogResult{Error: errors.New("Unsupported sendTxTo")}
 	}
 }
 
-func bruteForceTransaction(params SensorDevice, xdr string, eventIndex int) (string, error) {
+func bruteForceTransaction(params SensorDevice, eventIndex int, memo txnbuild.MemoHash) (string, error) {
 	for {
+		txParams := txnbuild.TransactionParams{
+			SourceAccount:        params.Account(),
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{&txnbuild.Payment{
+				Destination: helpers.BatchKeypair.Address(),
+				Asset:       params.PhysicsType.Asset(),
+				Amount:      "0.0000001",
+			}},
+			Memo:       memo,
+			Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix()-100000, txnbuild.TimeoutInfinite),
+			BaseFee:    100,
+		}
+		tx, err := txnbuild.NewTransaction(txParams)
+		if err != nil {
+			log.Fatalln("Error creating new transaction", err)
+		}
+		signedTx, err := tx.Sign(helpers.NetworkPassphrase, params.Keypair())
+		if err != nil {
+			log.Fatalln("Error signing transaction", err)
+		}
+		xdr, err := signedTx.Base64()
 		response, err := helpers.SendTxToStellarCore(params.Server, xdr)
 		if err != nil {
 			uError := err.(*url.Error)
