@@ -10,16 +10,17 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellot/stellot-iot/pkg/aggregator"
 	"github.com/stellot/stellot-iot/pkg/crypto"
 	"github.com/stellot/stellot-iot/pkg/functions"
 	"github.com/stellot/stellot-iot/pkg/helpers"
-	"github.com/stellot/stellot-iot/pkg/usecases"
 )
 
 func main() {
-	masterAcc := helpers.MustLoadMasterAccount()
-	accounts := createTimeIndexAccounts(masterAcc)
-	log.Println("Loaded tmie accounts", accounts)
+	// masterAcc := helpers.MustLoadMasterAccount()
+	// accounts := createTimeIndexAccounts(masterAcc)
+	// log.Println("Loaded tmie accounts", accounts)
+	sensors := helpers.DevicesKeypairs
 
 	dbpool, err := pgxpool.Connect(context.Background(), helpers.DatabaseUrl)
 	if err != nil {
@@ -29,45 +30,16 @@ func main() {
 
 	defer dbpool.Close()
 
-	rows, err := dbpool.Query(context.Background(), "SELECT txid, txbody, txhistory.ledgerseq, txindex, txresult, txmeta, closetime FROM txhistory, ledgerheaders WHERE txhistory.ledgerseq = ledgerheaders.ledgerseq LIMIT 500")
-	for rows.Next() {
-		var (
-			txid      string
-			txbody    string
-			ledgerseq int
-			txindex   int
-			txresult  string
-			txmeta    string
-		)
-		err := rows.Scan(&txid, &txbody, &ledgerseq, &txindex, &txresult, &txmeta)
-		if err != nil {
-			log.Fatal(err)
-		}
-		transaction, err := txnbuild.TransactionFromXDR(txbody)
-		if err != nil {
-			log.Fatal(err)
-		}
-		tx, ok := transaction.Transaction()
-		if !ok {
-			log.Fatal("Can not get simple transaction")
-		}
-		ops := tx.Operations()
-		for _, op := range ops {
-			val, ok := op.(*txnbuild.Payment)
-			if !ok {
-				log.Println("Tx is not payment")
-			} else {
-				if val.Destination == helpers.BatchKeypair.Address() {
-					log.Println("Sent to batch address")
-					if val.Asset == usecases.TEMP.Asset() || val.Asset == usecases.HUMD.Asset() {
-						log.Printf("Sent %s TEMP or HUMD\n", val.Amount)
-						log.Printf("txid %s, ledgerseq %d, txindex %d\n", txid, ledgerseq, txindex)
-						proceed(tx, val)
-					}
-				}
-			}
-		}
-	}
+	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC", sensors[0].Address())
+	var firstLedgerSeq int
+	row.Scan(&firstLedgerSeq)
+
+	row = dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence DESC", sensors[0].Address())
+	var lastLedgerSeq int
+	row.Scan(&lastLedgerSeq)
+
+	avg, min, max := aggregator.CalculateFunctionsForLedger(dbpool, sensors[0].Address(), firstLedgerSeq)
+	log.Printf("avg %d min %d max %d\n", avg, min, max)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "QueryRow failed: %v\n", err)
 		os.Exit(1)
@@ -116,7 +88,6 @@ func createTimeIndexAccounts(masterAcc *horizon.Account) []*horizon.Account {
 }
 
 func proceed(tx *txnbuild.Transaction, op *txnbuild.Payment) {
-
 	srcAccount := tx.SourceAccount()
 	genericMemo, ok := tx.Memo().(txnbuild.MemoHash)
 	if !ok {

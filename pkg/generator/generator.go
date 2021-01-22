@@ -124,6 +124,7 @@ func bruteForceTransaction(params SensorDevice, xdr string, eventIndex int) (str
 				return string(body), nil
 			} else {
 				if strings.Contains(string(body), "AAAAAAAAAAH////7AAAAAA==") {
+					time.Sleep(time.Duration(1+rand.Intn(5)) * time.Second)
 					acc := helpers.MustLoadAccount(params.keypair.Address())
 					params.account = acc
 					log.Println("Received bad seq error, Retrying in 1sec")
