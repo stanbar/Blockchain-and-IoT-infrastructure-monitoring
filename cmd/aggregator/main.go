@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stellar/go/keypair"
@@ -18,10 +19,25 @@ import (
 
 func main() {
 	masterAcc := helpers.MustLoadMasterAccount()
-	keypairs := []*keypair.Full{helpers.FiveSecondsKeypair, helpers.TenSecondsKeypair, helpers.ThirtySecondsKeypair, helpers.OneMinuteKeypair}
-	accounts := createTimeIndexAccounts(masterAcc, keypairs)
+	timeKeypairs := helpers.TimeIndexAccounts
+	sensorKeypairs := helpers.DevicesKeypairs
+
+	helpers.MustCreateAccounts(masterAcc, timeKeypairs)
+	helpers.MustCreateAccounts(masterAcc, []*keypair.Full{functions.AssetKeypair})
+	time.Sleep(5 * time.Second)
+
+	timeAccounts := loadAccounts(masterAcc, timeKeypairs)
+	sensorAccounts := loadAccounts(masterAcc, sensorKeypairs)
+	assetAccount := helpers.MustLoadAccount(functions.AssetKeypair.Address())
+
+	createTrustlines(masterAcc, timeKeypairs, timeAccounts)
+	createTrustlines(masterAcc, sensorKeypairs, sensorAccounts)
+
+	for _, v := range functions.Assets {
+		helpers.MustFundAccountsEvenly(masterAcc, assetAccount, functions.AssetKeypair, timeKeypairs, v)
+	}
+
 	// log.Println("Loaded tmie accounts", accounts)
-	sensors := helpers.DevicesKeypairs
 
 	dbpool, err := pgxpool.Connect(context.Background(), helpers.DatabaseUrl)
 	if err != nil {
@@ -31,26 +47,26 @@ func main() {
 
 	defer dbpool.Close()
 
-	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC", sensors[0].Address())
+	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC", sensorKeypairs[0].Address())
 	var firstLedgerSeq int64
 	err = row.Scan(&firstLedgerSeq)
 	if err != nil {
 		log.Fatal("Did not find first row")
 	}
 
-	row = dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence DESC", sensors[0].Address())
+	row = dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence DESC", sensorKeypairs[0].Address())
 	var lastLedgerSeq int64
 	row.Scan(&lastLedgerSeq)
 	if err != nil {
 		log.Fatal("Did not find last row")
 	}
 
-	avg, min, max := aggregator.CalculateFunctionsForLedger(dbpool, sensors[0].Address(), firstLedgerSeq)
+	avg, min, max := aggregator.CalculateFunctionsForLedger(dbpool, sensorKeypairs[0].Address(), firstLedgerSeq)
 	log.Printf("avg %d min %d max %d\n", avg, min, max)
 
-	aggregator.SendAvgTransaction(accounts[0], keypairs[0], avg, sensors[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
-	aggregator.SendMinTransaction(accounts[0], keypairs[0], min, sensors[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
-	aggregator.SendMaxTransaction(accounts[0], keypairs[0], max, sensors[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
+	aggregator.SendAvgTransaction(timeAccounts[0], timeKeypairs[0], avg, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
+	aggregator.SendMinTransaction(timeAccounts[0], timeKeypairs[0], min, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
+	aggregator.SendMaxTransaction(timeAccounts[0], timeKeypairs[0], max, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
 }
 
 type TimeIndex struct {
@@ -66,9 +82,7 @@ func (t TimeIndex) Account() *horizon.Account {
 	return t.account
 }
 
-func createTimeIndexAccounts(masterAcc *horizon.Account, keypairs []*keypair.Full) []*horizon.Account {
-	helpers.MustCreateAccounts(masterAcc, keypairs)
-
+func loadAccounts(masterAcc *horizon.Account, keypairs []*keypair.Full) []*horizon.Account {
 	channels := make([]chan helpers.LoadAccountResult, len(keypairs))
 	for i := 0; i < len(channels); i++ {
 		channels[i] = helpers.LoadAccountChan(keypairs[i].Address())
@@ -78,17 +92,19 @@ func createTimeIndexAccounts(masterAcc *horizon.Account, keypairs []*keypair.Ful
 		result := <-channels[i]
 		accounts[i] = result.Account
 	}
+	return accounts
+}
 
-	devices := make([]helpers.CreateTrustline, len(keypairs))
+func createTrustlines(masterAcc *horizon.Account, keypairs []*keypair.Full, accounts []*horizon.Account) {
+	timeIndexes := make([]helpers.CreateTrustline, len(keypairs))
 	for i, v := range keypairs {
-		devices[i] = TimeIndex{
+		timeIndexes[i] = TimeIndex{
 			keypair: v,
 			account: accounts[i],
 		}
 	}
 
-	helpers.TryCreateTrustlines(masterAcc, devices, functions.Assets)
-	return accounts
+	helpers.TryCreateTrustlines(masterAcc, timeIndexes, functions.Assets)
 }
 
 func proceed(tx *txnbuild.Transaction, op *txnbuild.Payment) {

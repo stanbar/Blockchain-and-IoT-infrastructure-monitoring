@@ -252,7 +252,7 @@ func MustSendTransaction(sourceAcc *horizon.Account, keypair *keypair.Full, ops 
 		log.Fatal(err)
 	}
 
-	log.Println("Submitting MustSendTransactionFromMasterKey transaction")
+	log.Printf("Submitting MustSendTransaction transaction from %s\n", keypair.Address())
 	response, err := SendTxToStellarCore(RandomStellarCoreUrl(), xdr)
 	if err != nil {
 		uError := err.(*url.Error)
@@ -292,4 +292,27 @@ func LoadAccountChan(accountId string) chan LoadAccountResult {
 		}
 	}()
 	return ch
+}
+
+func MustFundAccountsEvenly(masterAcc *horizon.Account, assetAccount *horizon.Account, assetKeypair *keypair.Full, receivers []*keypair.Full, asset txnbuild.Asset) {
+
+	// https://developers.stellar.org/docs/issuing-assets/anatomy-of-an-asset/#amount-precision
+	// ((2^63)-1)/(10^7) = 922,337,203,685.4775807
+	maxValue, err := strconv.ParseInt("9223372036854775807", 10, 64)
+	if err != nil {
+		log.Fatal("Can not parse max asset value")
+	}
+	amount := strconv.FormatInt(maxValue/int64(len(receivers)), 10)
+	separatorIndex := len(amount) - 7
+
+	ops := make([]txnbuild.Operation, len(receivers))
+	for i, v := range receivers {
+		ops[i] = &txnbuild.Payment{
+			Asset:         asset,
+			Destination:   v.Address(),
+			Amount:        amount[:separatorIndex] + "." + amount[separatorIndex:],
+			SourceAccount: assetAccount,
+		}
+	}
+	MustSendTransactionFromMasterKey(masterAcc, ops, assetKeypair)
 }
