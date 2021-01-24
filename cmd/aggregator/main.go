@@ -61,12 +61,19 @@ func main() {
 		log.Fatal("Did not find last row")
 	}
 
-	avg, min, max := aggregator.CalculateFunctionsForLedger(dbpool, sensorKeypairs[0].Address(), firstLedgerSeq)
-	log.Printf("avg: %d min: %d max: %d\n", avg, min, max)
+	currentLedger := firstLedgerSeq
+	for {
+		avg, min, max := aggregator.CalculateFunctionsForLedger(dbpool, sensorKeypairs[0].Address(), currentLedger)
+		log.Printf("avg: %d min: %d max: %d\n", avg, min, max)
 
-	aggregator.SendAvgTransaction(timeAccounts[0], timeKeypairs[0], avg, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
-	aggregator.SendMinTransaction(timeAccounts[0], timeKeypairs[0], min, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
-	aggregator.SendMaxTransaction(timeAccounts[0], timeKeypairs[0], max, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
+		aggregator.SendAvgTransaction(timeAccounts[0], timeKeypairs[0], avg, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
+		aggregator.SendMinTransaction(timeAccounts[0], timeKeypairs[0], min, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
+		aggregator.SendMaxTransaction(timeAccounts[0], timeKeypairs[0], max, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
+		if currentLedger == lastLedgerSeq {
+			break
+		}
+	}
+	log.Printf("Finished aggregating from %d to %d\n", firstLedgerSeq, lastLedgerSeq)
 }
 
 type TimeIndex struct {
