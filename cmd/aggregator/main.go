@@ -62,7 +62,7 @@ func main() {
 	}
 
 	avg, min, max := aggregator.CalculateFunctionsForLedger(dbpool, sensorKeypairs[0].Address(), firstLedgerSeq)
-	log.Printf("avg %d min %d max %d\n", avg, min, max)
+	log.Printf("avg: %d min: %d max: %d\n", avg, min, max)
 
 	aggregator.SendAvgTransaction(timeAccounts[0], timeKeypairs[0], avg, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
 	aggregator.SendMinTransaction(timeAccounts[0], timeKeypairs[0], min, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
