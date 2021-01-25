@@ -102,7 +102,9 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 }
 
 func bruteForceTransaction(params SensorDevice, eventIndex int, memo txnbuild.MemoHash) (string, error) {
+	i := 0
 	for {
+		i += 1
 		txParams := txnbuild.TransactionParams{
 			SourceAccount:        params.Account(),
 			IncrementSequenceNum: true,
@@ -113,7 +115,7 @@ func bruteForceTransaction(params SensorDevice, eventIndex int, memo txnbuild.Me
 			}},
 			Memo:       memo,
 			Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix()-100000, txnbuild.TimeoutInfinite),
-			BaseFee:    100,
+			BaseFee:    100 * int64(i),
 		}
 		tx, err := txnbuild.NewTransaction(txParams)
 		if err != nil {
@@ -139,10 +141,10 @@ func bruteForceTransaction(params SensorDevice, eventIndex int, memo txnbuild.Me
 				return string(body), nil
 			} else {
 				if strings.Contains(string(body), "AAAAAAAAAAH////7AAAAAA==") {
+					log.Printf("[%d]Received bad seq error, deviceId %d log no. %d Retrying in 1sec", i-1, params.DeviceId, eventIndex)
 					time.Sleep(time.Duration(1+rand.Intn(5)) * time.Second)
 					acc := helpers.MustLoadAccount(params.keypair.Address())
 					params.account = acc
-					log.Println("Received bad seq error, Retrying in 1sec")
 					time.Sleep(1 * time.Second)
 				} else {
 					log.Fatalf("Received ERROR transactioin in deviceId %d log no. %d", params.DeviceId, eventIndex)
