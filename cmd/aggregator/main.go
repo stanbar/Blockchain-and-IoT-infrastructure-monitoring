@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
+	"net/http"
 	"os"
 	"time"
 
@@ -18,20 +20,27 @@ import (
 )
 
 func main() {
+	http.DefaultClient.Timeout = time.Second * time.Duration(helpers.TimeOut)
+	rand.Seed(time.Now().UnixNano())
+	helpers.BlockUntilHorizonIsReady()
 	masterAcc := helpers.MustLoadMasterAccount()
 	timeKeypairs := helpers.TimeIndexAccounts
 	sensorKeypairs := helpers.DevicesKeypairs
 
-	helpers.MustCreateAccounts(masterAcc, timeKeypairs)
-	helpers.MustCreateAccounts(masterAcc, []*keypair.Full{functions.AssetKeypair})
-	time.Sleep(5 * time.Second)
+	helpers.MustCreateAccounts(masterAcc, timeKeypairs, "core")
+	helpers.MustCreateAccounts(masterAcc, []*keypair.Full{functions.AssetKeypair}, "horizon")
 
+	log.Println("Loading time accounts")
 	timeAccounts := loadAccounts(masterAcc, timeKeypairs)
+
+	log.Println("Loading sensor accounts")
 	sensorAccounts := loadAccounts(masterAcc, sensorKeypairs)
+
+	log.Println("Loading functions asset account")
 	assetAccount := helpers.MustLoadAccount(functions.AssetKeypair.Address())
 
-	createTrustlines(masterAcc, timeKeypairs, timeAccounts)
-	createTrustlines(masterAcc, sensorKeypairs, sensorAccounts)
+	createTrustlines(masterAcc, timeKeypairs, timeAccounts, "core")
+	createTrustlines(masterAcc, sensorKeypairs, sensorAccounts, "horizon")
 
 	for _, v := range functions.Assets {
 		helpers.MustFundAccountsEvenly(masterAcc, assetAccount, functions.AssetKeypair, timeKeypairs, v)
@@ -47,33 +56,8 @@ func main() {
 
 	defer dbpool.Close()
 
-	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC", sensorKeypairs[0].Address())
-	var firstLedgerSeq int64
-	err = row.Scan(&firstLedgerSeq)
-	if err != nil {
-		log.Fatal("Did not find first row")
-	}
-
-	row = dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence DESC", sensorKeypairs[0].Address())
-	var lastLedgerSeq int64
-	row.Scan(&lastLedgerSeq)
-	if err != nil {
-		log.Fatal("Did not find last row")
-	}
-
-	currentLedger := firstLedgerSeq
-	for {
-		avg, min, max := aggregator.CalculateFunctionsForLedger(dbpool, sensorKeypairs[0].Address(), currentLedger)
-		log.Printf("avg: %d min: %d max: %d\n", avg, min, max)
-
-		aggregator.SendAvgTransaction(timeAccounts[0], timeKeypairs[0], avg, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
-		aggregator.SendMinTransaction(timeAccounts[0], timeKeypairs[0], min, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
-		aggregator.SendMaxTransaction(timeAccounts[0], timeKeypairs[0], max, sensorKeypairs[0].Address(), firstLedgerSeq, firstLedgerSeq+1)
-		if currentLedger == lastLedgerSeq {
-			break
-		}
-	}
-	log.Printf("Finished aggregating from %d to %d\n", firstLedgerSeq, lastLedgerSeq)
+	// calculateOneBlockInterval(dbpool, sensorKeypairs[0], timeAccounts[0], timeKeypairs[0])
+	calculateFiveBlocksInterval(dbpool, sensorKeypairs[0], timeAccounts[1], timeKeypairs[1])
 }
 
 type TimeIndex struct {
@@ -97,12 +81,15 @@ func loadAccounts(masterAcc *horizon.Account, keypairs []*keypair.Full) []*horiz
 	accounts := make([]*horizon.Account, len(keypairs))
 	for i := 0; i < len(keypairs); i++ {
 		result := <-channels[i]
+		if result.Error != nil {
+			log.Fatal(result.Error)
+		}
 		accounts[i] = result.Account
 	}
 	return accounts
 }
 
-func createTrustlines(masterAcc *horizon.Account, keypairs []*keypair.Full, accounts []*horizon.Account) {
+func createTrustlines(masterAcc *horizon.Account, keypairs []*keypair.Full, accounts []*horizon.Account, where string) {
 	timeIndexes := make([]helpers.CreateTrustline, len(keypairs))
 	for i, v := range keypairs {
 		timeIndexes[i] = TimeIndex{
@@ -111,7 +98,7 @@ func createTrustlines(masterAcc *horizon.Account, keypairs []*keypair.Full, acco
 		}
 	}
 
-	helpers.TryCreateTrustlines(masterAcc, timeIndexes, functions.Assets)
+	helpers.MustCreateTrustlines(masterAcc, timeIndexes, functions.Assets, where)
 }
 
 func proceed(tx *txnbuild.Transaction, op *txnbuild.Payment) {
@@ -131,4 +118,64 @@ func proceed(tx *txnbuild.Transaction, op *txnbuild.Payment) {
 		log.Fatal(err)
 	}
 	log.Println("decrypted memo:", string(decrypted[:]))
+}
+
+func calculateFiveBlocksInterval(dbpool *pgxpool.Pool, aggregatingOn *keypair.Full, timeAccount *horizon.Account, timeKeypair *keypair.Full) {
+	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC", aggregatingOn.Address())
+	var firstLedgerSeq int64
+	err := row.Scan(&firstLedgerSeq)
+	if err != nil {
+		log.Fatal("Did not find first row")
+	}
+
+	row = dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence DESC", aggregatingOn.Address())
+	var lastLedgerSeq int64
+	row.Scan(&lastLedgerSeq)
+	if err != nil {
+		log.Fatal("Did not find last row")
+	}
+
+	for currentLedger := firstLedgerSeq; currentLedger < lastLedgerSeq; currentLedger += 5 {
+		avg, min, max, err := aggregator.CalculateFunctionsForLedgers(dbpool, aggregatingOn.Address(), currentLedger, currentLedger+5) // what ledgerSeq to use ?
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		log.Printf("avg: %d min: %d max: %d\n", avg, min, max)
+
+		aggregator.SendAvgTransaction(timeAccount, timeKeypair, avg, aggregatingOn.Address(), currentLedger, currentLedger+5)
+		aggregator.SendMinTransaction(timeAccount, timeKeypair, min, aggregatingOn.Address(), currentLedger, currentLedger+5)
+		aggregator.SendMaxTransaction(timeAccount, timeKeypair, max, aggregatingOn.Address(), currentLedger, currentLedger+5)
+	}
+	log.Printf("Finished aggregating 5 blocks from %d to %d\n", firstLedgerSeq, lastLedgerSeq)
+}
+
+func calculateOneBlockInterval(dbpool *pgxpool.Pool, aggregatingOn *keypair.Full, timeAccount *horizon.Account, timeKeypair *keypair.Full) {
+	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC", aggregatingOn.Address())
+	var firstLedgerSeq int64
+	err := row.Scan(&firstLedgerSeq)
+	if err != nil {
+		log.Fatal("Did not find first row")
+	}
+
+	row = dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence DESC", aggregatingOn.Address())
+	var lastLedgerSeq int64
+	row.Scan(&lastLedgerSeq)
+	if err != nil {
+		log.Fatal("Did not find last row")
+	}
+
+	for currentLedger := firstLedgerSeq; currentLedger != lastLedgerSeq; currentLedger += 1 {
+		avg, min, max, err := aggregator.CalculateFunctionsForLedger(dbpool, aggregatingOn.Address(), currentLedger)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		log.Printf("avg: %d min: %d max: %d\n", avg, min, max)
+
+		aggregator.SendAvgTransaction(timeAccount, timeKeypair, avg, aggregatingOn.Address(), currentLedger, currentLedger+1)
+		aggregator.SendMinTransaction(timeAccount, timeKeypair, min, aggregatingOn.Address(), currentLedger, currentLedger+1)
+		aggregator.SendMaxTransaction(timeAccount, timeKeypair, max, aggregatingOn.Address(), currentLedger, currentLedger+1)
+	}
+	log.Printf("Finished aggregating 1 blocks from %d to %d\n", firstLedgerSeq, lastLedgerSeq)
 }

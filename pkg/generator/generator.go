@@ -2,6 +2,14 @@ package generator
 
 import (
 	"errors"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/protocols/horizon"
@@ -10,13 +18,6 @@ import (
 	"github.com/stellot/stellot-iot/pkg/helpers"
 	"github.com/stellot/stellot-iot/pkg/usecases"
 	"golang.org/x/time/rate"
-	"io/ioutil"
-	"log"
-	"math/rand"
-	"net/url"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type SensorDevice struct {
@@ -78,7 +79,7 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 			log.Println("Error signing transaction", err)
 			return SendLogResult{Error: err}
 		}
-		resp, err := helpers.SendTxToHorizon(params.Horizon, signedTx)
+		resp, err := helpers.SendTxToHorizon(signedTx)
 		if err != nil {
 			hError := err.(*horizonclient.Error)
 			if hError.Problem.Extras != nil {
@@ -94,61 +95,57 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 		log.Printf("Success sending log deviceId %d log no. %d %s", params.DeviceId, eventIndex, string(resp.ResultXdr))
 		return SendLogResult{HorizonResponse: &resp, Error: err}
 	} else if helpers.SendTxTo == "stellar-core" {
-		body, err := bruteForceTransaction(params, eventIndex, memo)
+		body, err := sendLogToStellarCode(params, eventIndex, memo)
 		return SendLogResult{HTTPResponseBody: string(body), Error: err}
 	} else {
 		return SendLogResult{Error: errors.New("Unsupported sendTxTo")}
 	}
 }
 
-func bruteForceTransaction(params SensorDevice, eventIndex int, memo txnbuild.MemoHash) (string, error) {
-	i := 0
-	for {
-		i += 1
-		txParams := txnbuild.TransactionParams{
-			SourceAccount:        params.Account(),
-			IncrementSequenceNum: true,
-			Operations: []txnbuild.Operation{&txnbuild.Payment{
-				Destination: helpers.BatchKeypair.Address(),
-				Asset:       params.PhysicsType.Asset(),
-				Amount:      "0.0000001",
-			}},
-			Memo:       memo,
-			Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix()-100000, txnbuild.TimeoutInfinite),
-			BaseFee:    100 * int64(i),
-		}
-		tx, err := txnbuild.NewTransaction(txParams)
-		if err != nil {
-			log.Fatalln("Error creating new transaction", err)
-		}
-		signedTx, err := tx.Sign(helpers.NetworkPassphrase, params.Keypair())
-		if err != nil {
-			log.Fatalln("Error signing transaction", err)
-		}
-		xdr, err := signedTx.Base64()
-		response, err := helpers.SendTxToStellarCore(params.Server, xdr)
-		if err != nil {
-			uError := err.(*url.Error)
-			log.Printf("Error sending get request to stellar core %+v\n", uError)
-		}
-		defer response.Body.Close()
-		body, err := ioutil.ReadAll(response.Body)
-		if err != nil {
-			log.Printf("Error reading body of log device: %d log no. %d %v", params.DeviceId, eventIndex, err)
+func sendLogToStellarCode(params SensorDevice, eventIndex int, memo txnbuild.MemoHash) (string, error) {
+	txParams := txnbuild.TransactionParams{
+		SourceAccount:        params.Account(),
+		IncrementSequenceNum: true,
+		Operations: []txnbuild.Operation{&txnbuild.Payment{
+			Destination: helpers.BatchKeypair.Address(),
+			Asset:       params.PhysicsType.Asset(),
+			Amount:      "0.0000001",
+		}},
+		Memo:       memo,
+		Timebounds: txnbuild.NewTimebounds(time.Now().UTC().Unix()-100000, txnbuild.TimeoutInfinite),
+		BaseFee:    100,
+	}
+	tx, err := txnbuild.NewTransaction(txParams)
+	if err != nil {
+		log.Fatalln("Error creating new transaction", err)
+	}
+	signedTx, err := tx.Sign(helpers.NetworkPassphrase, params.Keypair())
+	if err != nil {
+		log.Fatalln("Error signing transaction", err)
+	}
+	xdr, err := signedTx.Base64()
+	response, err := helpers.SendTxToStellarCore(params.Server, xdr)
+	if err != nil {
+		uError := err.(*url.Error)
+		log.Printf("Error sending get request to stellar core %+v\n", uError)
+	}
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Error reading body of log device: %d log no. %d %v", params.DeviceId, eventIndex, err)
+		return "", err
+	} else {
+		if !strings.Contains(string(body), "ERROR") {
+			log.Printf("Success sending log deviceId %d log no. %d %s", params.DeviceId, eventIndex, string(body))
+			return string(body), nil
 		} else {
-			if !strings.Contains(string(body), "ERROR") {
-				log.Printf("Success sending log deviceId %d log no. %d %s", params.DeviceId, eventIndex, string(body))
-				return string(body), nil
+			if strings.Contains(string(body), "AAAAAAAAAAH////7AAAAAA==") {
+				errMessage := fmt.Sprintf("Received bad seq error, deviceId %d log no. %d Retrying in 1sec", params.DeviceId, eventIndex)
+				log.Println(errMessage)
+				return string(body), errors.New(errMessage)
 			} else {
-				if strings.Contains(string(body), "AAAAAAAAAAH////7AAAAAA==") {
-					log.Printf("[%d]Received bad seq error, deviceId %d log no. %d Retrying in 1sec", i-1, params.DeviceId, eventIndex)
-					time.Sleep(time.Duration(1+rand.Intn(5)) * time.Second)
-					acc := helpers.MustLoadAccount(params.keypair.Address())
-					params.account = acc
-					time.Sleep(1 * time.Second)
-				} else {
-					log.Fatalf("Received ERROR transactioin in deviceId %d log no. %d", params.DeviceId, eventIndex)
-				}
+				log.Fatalf("Received ERROR transactioin in deviceId %d log no. %d", params.DeviceId, eventIndex)
+				return string(body), errors.New(fmt.Sprintf("Received bad seq error, deviceId %d log no. %d Retrying in 1sec", params.DeviceId, eventIndex))
 			}
 		}
 	}
@@ -170,7 +167,7 @@ func CreateSensorDevices(keypairs []*keypair.Full) []SensorDevice {
 		}
 
 		physicType := usecases.TEMP
-		if rand.Intn(2) == 0 {
+		if i <= len(keypairs) {
 			physicType = usecases.HUMD
 		}
 

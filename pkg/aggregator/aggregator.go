@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ import (
 	"github.com/stellot/stellot-iot/pkg/usecases"
 )
 
-func CalculateFunctionsForLedger(dbpool *pgxpool.Pool, sensorAddress string, ledgerSeq int64) (avg int, min int, max int) {
+func CalculateFunctionsForLedger(dbpool *pgxpool.Pool, sensorAddress string, ledgerSeq int64) (avg int, min int, max int, err error) {
 	rows, err := dbpool.Query(context.Background(), "SELECT memo, tx_envelope FROM history_transactions WHERE account = $1 AND ledger_sequence = $2", sensorAddress, ledgerSeq)
 	if err != nil {
 		log.Fatal(err)
@@ -59,6 +60,72 @@ func CalculateFunctionsForLedger(dbpool *pgxpool.Pool, sensorAddress string, led
 		}
 	}
 
+	if len(values) == 0 {
+		return 0, 0, 0, errors.New("no records found")
+	}
+	var sum int
+	if len(values) > 0 {
+		min = values[0]
+	}
+	for _, v := range values {
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+		sum += v
+	}
+	avg = sum / len(values)
+	return
+}
+
+func CalculateFunctionsForLedgers(dbpool *pgxpool.Pool, sensorAddress string, ledgerSeqStart int64, ledgerSeqEnd int64) (avg int, min int, max int, err error) {
+	rows, err := dbpool.Query(context.Background(), "SELECT memo, tx_envelope FROM history_transactions WHERE account = $1 AND ledger_sequence >= $2 AND ledger_sequence < $3", sensorAddress, ledgerSeqStart, ledgerSeqEnd) // should we care about sensor sequences or time index accounts ?
+	if err != nil {
+		log.Fatal(err)
+	}
+	values := make([]int, 0)
+
+	for rows.Next() {
+		var (
+			memo       string
+			txenvelope string
+		)
+		err := rows.Scan(&memo, &txenvelope)
+		if err != nil {
+			log.Fatal(err)
+		}
+		transaction, err := txnbuild.TransactionFromXDR(txenvelope)
+		if err != nil {
+			log.Fatal(err)
+		}
+		tx, ok := transaction.Transaction()
+		if !ok {
+			log.Fatal("Can not get simple transaction")
+		}
+		ops := tx.Operations()
+		for _, op := range ops {
+			val, ok := op.(*txnbuild.Payment)
+			if !ok {
+				log.Println("Tx is not payment")
+			} else {
+				if val.Destination == helpers.BatchKeypair.Address() {
+					log.Println("Sent to batch address")
+					if val.Asset == usecases.TEMP.Asset() || val.Asset == usecases.HUMD.Asset() {
+						log.Printf("Sent %s TEMP or HUMD\n", val.Amount)
+						value := getLogValue(tx, val)
+						values = append(values, value)
+						log.Println("values", values)
+					}
+				}
+			}
+		}
+	}
+
+	if len(values) == 0 {
+		return 0, 0, 0, errors.New("no records found")
+	}
 	var sum int
 	if len(values) > 0 {
 		min = values[0]

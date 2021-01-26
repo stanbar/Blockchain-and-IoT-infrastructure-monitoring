@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/keypair"
@@ -41,6 +42,16 @@ var (
 	OneMinuteKeypair       = keypair.MustParseFull(utils.MustGetenv("ONE_MINUTE_SECRET"))
 	TimeIndexAccounts      = []*keypair.Full{FiveSecondsKeypair, TenSecondsKeypair, ThirtySecondsKeypair, OneMinuteKeypair}
 )
+
+func BlockUntilHorizonIsReady() {
+	for {
+		log.Println("Checking if horizon in still ingesting")
+		if !IsHorizonIngesting() {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
 
 func devicesKeypairs() []*keypair.Full {
 	keypairs := make([]*keypair.Full, len(devicesSecretsSlice))
@@ -76,6 +87,14 @@ func MustLoadMasterAccount() *horizon.Account {
 	return MustLoadAccount(MasterKp.Address())
 }
 
+func IsHorizonIngesting() bool {
+	root, err := RandomHorizon().Root()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return root.IngestSequence == 0
+}
+
 func MustLoadAccount(accountId string) *horizon.Account {
 	log.Printf("Loading account: %s\n", accountId)
 	accReq := horizonclient.AccountRequest{AccountID: accountId}
@@ -84,10 +103,6 @@ func MustLoadAccount(accountId string) *horizon.Account {
 		log.Fatal(err)
 	}
 	return &masterAccount
-}
-
-func SendTxToHorizon(horizon *horizonclient.Client, transaction *txnbuild.Transaction) (horizon.Transaction, error) {
-	return horizon.SubmitTransactionWithOptions(transaction, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
 }
 
 func SendTxToStellarCore(server string, xdr string) (resp *http.Response, err error) {
@@ -120,7 +135,7 @@ func HandleGracefuly(err error) {
 	}
 }
 
-func MustCreateAccounts(masterAcc *horizon.Account, kp []*keypair.Full) {
+func MustCreateAccounts(masterAcc *horizon.Account, kp []*keypair.Full, where string) {
 	createAccountOps := make([]txnbuild.Operation, len(kp))
 	for i, v := range kp {
 		createAccountOps[i] = &txnbuild.CreateAccount{
@@ -129,56 +144,14 @@ func MustCreateAccounts(masterAcc *horizon.Account, kp []*keypair.Full) {
 		}
 	}
 	log.Println("Submitting createAccount transaction")
-	MustSendTransactionFromMasterKey(masterAcc, createAccountOps)
-}
-
-type CreateTrustline interface {
-	Keypair() *keypair.Full
-	Account() *horizon.Account
-}
-
-func TryCreateTrustlines(masterAcc *horizon.Account, accounts []CreateTrustline, assets []txnbuild.Asset) {
-	chunks := chunk(accounts, 19) // Stellar allows up to 20 signatures, and 1 is reserved to master
-	for _, chunk := range chunks {
-		fundAccountsOps := make([]txnbuild.Operation, len(chunk)*len(assets))
-		for i, account := range chunk {
-			for j, asset := range assets {
-				log.Println(j + i*len(assets))
-				fundAccountsOps[j+i*len(assets)] = &txnbuild.ChangeTrust{
-					Line:          asset,
-					SourceAccount: account.Account(),
-				}
-			}
-		}
-		signers := make([]*keypair.Full, len(chunk))
-		for i, v := range chunk {
-			signers[i] = v.Keypair()
-		}
-
-		log.Println("Submitting createTrustlines transaction")
-		MustSendTransactionFromMasterKey(masterAcc, fundAccountsOps, signers...)
+	tx := MustCreateTxFromMasterAcc(masterAcc, createAccountOps)
+	if where == "core" {
+		MustSendTransactionToStellarCore(tx)
+	} else {
+		TrySendTxToHorizon(tx)
 	}
 }
-
-func chunk(slice []CreateTrustline, chunkSize int) [][]CreateTrustline {
-	var chunks [][]CreateTrustline
-	for {
-		if len(slice) == 0 {
-			break
-		}
-		// necessary check to avoid slicing beyond
-		// slice capacity
-		if len(slice) < chunkSize {
-			chunkSize = len(slice)
-		}
-		chunks = append(chunks, slice[0:chunkSize])
-		slice = slice[chunkSize:]
-	}
-	return chunks
-}
-
-func MustSendTransactionFromMasterKey(masterAcc *horizon.Account, ops []txnbuild.Operation, additionalSigners ...*keypair.Full) {
-
+func MustCreateTxFromMasterAcc(masterAcc *horizon.Account, ops []txnbuild.Operation, additionalSigners ...*keypair.Full) *txnbuild.Transaction {
 	txParams := txnbuild.TransactionParams{
 		SourceAccount:        masterAcc,
 		IncrementSequenceNum: true,
@@ -198,6 +171,11 @@ func MustSendTransactionFromMasterKey(masterAcc *horizon.Account, ops []txnbuild
 	if err != nil {
 		log.Fatal(err)
 	}
+	return signedTx
+}
+
+func MustSendTransactionToStellarCore(signedTx *txnbuild.Transaction) {
+
 	xdr, err := signedTx.Base64()
 	if err != nil {
 		log.Fatal(err)
@@ -207,7 +185,7 @@ func MustSendTransactionFromMasterKey(masterAcc *horizon.Account, ops []txnbuild
 	response, err := SendTxToStellarCore(RandomStellarCoreUrl(), xdr)
 	if err != nil {
 		uError := err.(*url.Error)
-		log.Printf("Error sending get request to stellar core %+v\n", uError)
+		log.Fatalf("Error sending get request to stellar core %+v\n", uError)
 	}
 	defer response.Body.Close()
 	body, err := ioutil.ReadAll(response.Body)
@@ -224,6 +202,17 @@ func MustSendTransactionFromMasterKey(masterAcc *horizon.Account, ops []txnbuild
 			}
 		}
 	}
+}
+
+func TrySendTxToHorizon(transaction *txnbuild.Transaction) {
+	_, err := RandomHorizon().SubmitTransactionWithOptions(transaction, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
+	if err != nil {
+		HandleGracefuly(err)
+	}
+}
+
+func SendTxToHorizon(transaction *txnbuild.Transaction) (horizon.Transaction, error) {
+	return RandomHorizon().SubmitTransactionWithOptions(transaction, horizonclient.SubmitTxOpts{SkipMemoRequiredCheck: true})
 }
 
 func MustSendTransaction(sourceAcc *horizon.Account, keypair *keypair.Full, ops []txnbuild.Operation, memo txnbuild.MemoHash, additionalSigners ...*keypair.Full) {
@@ -314,5 +303,58 @@ func MustFundAccountsEvenly(masterAcc *horizon.Account, assetAccount *horizon.Ac
 			SourceAccount: assetAccount,
 		}
 	}
-	MustSendTransactionFromMasterKey(masterAcc, ops, assetKeypair)
+	txn := MustCreateTxFromMasterAcc(masterAcc, ops, assetKeypair)
+	MustSendTransactionToStellarCore(txn)
+}
+
+type CreateTrustline interface {
+	Keypair() *keypair.Full
+	Account() *horizon.Account
+}
+
+func MustCreateTrustlines(masterAcc *horizon.Account, accounts []CreateTrustline, assets []txnbuild.Asset, where string) {
+	chunks := chunk(accounts, 19) // Stellar allows up to 20 signatures, and 1 is reserved to master
+	for _, chunk := range chunks {
+		ops := make([]txnbuild.Operation, len(chunk)*len(assets))
+		for i, account := range chunk {
+			for j, asset := range assets {
+				if account.Account() == nil {
+					log.Fatalf("[%d]Account %s is nil", j+i*len(assets), account.Keypair().Address())
+				}
+				ops[j+i*len(assets)] = &txnbuild.ChangeTrust{
+					Line:          asset,
+					SourceAccount: account.Account(),
+				}
+			}
+		}
+		signers := make([]*keypair.Full, len(chunk))
+		for i, v := range chunk {
+			signers[i] = v.Keypair()
+		}
+
+		log.Println("Submitting createTrustlines transaction")
+		txn := MustCreateTxFromMasterAcc(masterAcc, ops, signers...)
+		if where == "core" {
+			MustSendTransactionToStellarCore(txn)
+		} else {
+			TrySendTxToHorizon(txn)
+		}
+	}
+}
+
+func chunk(slice []CreateTrustline, chunkSize int) [][]CreateTrustline {
+	var chunks [][]CreateTrustline
+	for {
+		if len(slice) == 0 {
+			break
+		}
+		// necessary check to avoid slicing beyond
+		// slice capacity
+		if len(slice) < chunkSize {
+			chunkSize = len(slice)
+		}
+		chunks = append(chunks, slice[0:chunkSize])
+		slice = slice[chunkSize:]
+	}
+	return chunks
 }
