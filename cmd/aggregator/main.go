@@ -40,7 +40,7 @@ func main() {
 	assetAccount := helpers.MustLoadAccount(functions.AssetKeypair.Address())
 
 	createTrustlines(masterAcc, timeKeypairs, timeAccounts, "core")
-	createTrustlines(masterAcc, sensorKeypairs, sensorAccounts, "horizon")
+	createTrustlines(masterAcc, sensorKeypairs, sensorAccounts, "core")
 
 	for _, v := range functions.Assets {
 		helpers.MustFundAccountsEvenly(masterAcc, assetAccount, functions.AssetKeypair, timeKeypairs, v)

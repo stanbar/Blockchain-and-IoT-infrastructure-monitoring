@@ -116,12 +116,12 @@ func CalculateFunctionsForLedgers(dbpool *pgxpool.Pool, sensorAddress string, le
 						log.Printf("Sent %s TEMP or HUMD\n", val.Amount)
 						value := getLogValue(tx, val)
 						values = append(values, value)
-						log.Println("values", values)
 					}
 				}
 			}
 		}
 	}
+	log.Println("aggregating on values", values)
 
 	if len(values) == 0 {
 		return 0, 0, 0, errors.New("no records found")
