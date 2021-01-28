@@ -143,6 +143,70 @@ func CalculateFunctionsForLedgers(dbpool *pgxpool.Pool, sensorAddress string, le
 	return
 }
 
+func CalculateFunctionsForLastBlocks(dbpool *pgxpool.Pool, timeAddress string, lastBlocks int) (avg int, min int, max int, err error) {
+	rows, err := dbpool.Query(context.Background(), "SELECT tx_envelope, ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY account_sequence DESC LIMIT $2", timeAddress, lastBlocks)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+	values := make([]int, 0)
+
+	for rows.Next() {
+		var (
+			memo       string
+			txenvelope string
+		)
+		err := rows.Scan(&memo, &txenvelope)
+		if err != nil {
+			log.Fatal(err)
+		}
+		transaction, err := txnbuild.TransactionFromXDR(txenvelope)
+		if err != nil {
+			log.Fatal(err)
+		}
+		tx, ok := transaction.Transaction()
+		if !ok {
+			log.Fatal("Can not get simple transaction")
+		}
+		ops := tx.Operations()
+		for _, op := range ops {
+			val, ok := op.(*txnbuild.Payment)
+			if !ok {
+				log.Println("Tx is not payment")
+			} else {
+				if val.Destination == helpers.BatchKeypair.Address() {
+					log.Println("Sent to batch address")
+					if val.Asset == usecases.TEMP.Asset() || val.Asset == usecases.HUMD.Asset() {
+						log.Printf("Sent %s TEMP or HUMD\n", val.Amount)
+						value := getLogValue(tx, val)
+						values = append(values, value)
+					}
+				}
+			}
+		}
+	}
+	log.Println("aggregating on values", values)
+
+	if len(values) == 0 {
+		return 0, 0, 0, errors.New("no records found")
+	}
+	var sum int
+	if len(values) > 0 {
+		min = values[0]
+	}
+	for _, v := range values {
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+		sum += v
+	}
+	avg = sum / len(values)
+	return
+}
+
 func getLogValue(tx *txnbuild.Transaction, op *txnbuild.Payment) int {
 	srcAccount := tx.SourceAccount()
 	genericMemo, ok := tx.Memo().(txnbuild.MemoHash)
