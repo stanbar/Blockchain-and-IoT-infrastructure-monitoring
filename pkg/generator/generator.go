@@ -45,7 +45,7 @@ type SendLogResult struct {
 	Error            error
 }
 
-func SendLogTxToHorizon(params SensorDevice, eventIndex int) SendLogResult {
+func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 	seqNum, err := strconv.ParseInt(params.Account().Sequence, 10, 64)
 	if err != nil {
 		return SendLogResult{Error: err}
@@ -95,14 +95,14 @@ func SendLogTxToHorizon(params SensorDevice, eventIndex int) SendLogResult {
 		log.Printf("Success sending log deviceId %02d log no. %d %s", params.DeviceId, eventIndex, string(resp.ResultXdr))
 		return SendLogResult{HorizonResponse: &resp, Error: err}
 	} else if helpers.SendTxTo == "stellar-core" {
-		body, err := sendLogToStellarCode(params, eventIndex, memo)
+		body, err := sendLogToStellarCore(params, eventIndex, memo)
 		return SendLogResult{HTTPResponseBody: string(body), Error: err}
 	} else {
 		return SendLogResult{Error: errors.New("Unsupported sendTxTo")}
 	}
 }
 
-func sendLogToStellarCode(params SensorDevice, eventIndex int, memo txnbuild.MemoHash) (string, error) {
+func sendLogToStellarCore(params SensorDevice, eventIndex int, memo txnbuild.MemoHash) (string, error) {
 	txParams := txnbuild.TransactionParams{
 		SourceAccount:        params.Account(),
 		IncrementSequenceNum: true,
@@ -128,6 +128,7 @@ func sendLogToStellarCode(params SensorDevice, eventIndex int, memo txnbuild.Mem
 	if err != nil {
 		uError := err.(*url.Error)
 		log.Printf("Error sending get request to stellar core %+v\n", uError)
+		return "", err
 	}
 	defer response.Body.Close()
 	body, err := ioutil.ReadAll(response.Body)

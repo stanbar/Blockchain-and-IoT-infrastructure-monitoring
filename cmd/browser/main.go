@@ -118,10 +118,10 @@ func countTxs(dbpool *pgxpool.Pool, sensorAddress string, usecase usecases.Physi
 
 	row = dbpool.QueryRow(context.Background(), `
   SELECT count(*) FROM history_transactions txs
-WHERE txs.account = $1
-AND txs.account_sequence > $2
-AND txs.account_sequence <= $3
-GROUP BY txs.account;
+  WHERE txs.account = $1
+  AND txs.account_sequence > $2
+  AND txs.account_sequence <= $3
+  GROUP BY txs.account;
   `, to, fromSeq, toSeq)
 	log.Println("executed sql", time.Since(start))
 

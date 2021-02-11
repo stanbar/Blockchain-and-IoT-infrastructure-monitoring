@@ -80,7 +80,7 @@ func startGenerator(iotDevices []generator.SensorDevice) error {
 					log.Println("Error returned by limiter", err)
 					return
 				}
-				res := generator.SendLogTxToHorizon(params, i)
+				res := generator.SendLogTx(params, i)
 				if res.Error != nil {
 					cancel()
 					return
