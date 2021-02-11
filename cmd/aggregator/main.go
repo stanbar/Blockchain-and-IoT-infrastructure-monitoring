@@ -24,14 +24,18 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	helpers.BlockUntilHorizonIsReady()
 	masterAcc := helpers.MustLoadMasterAccount()
-	timeKeypairs := helpers.TimeIndexAccounts
 	sensorKeypairs := helpers.DevicesKeypairs
 
-	helpers.MustCreateAccounts(masterAcc, timeKeypairs, "core")
+	aggregatorKeypairs := make([]*keypair.Full, len(aggregator.Aggregators))
+	for i, v := range aggregator.Aggregators {
+		aggregatorKeypairs[i] = v.Keypair
+	}
+
+	helpers.MustCreateAccounts(masterAcc, aggregatorKeypairs, "horizon")
 	helpers.MustCreateAccounts(masterAcc, []*keypair.Full{functions.AssetKeypair}, "horizon")
 
-	log.Println("Loading time accounts")
-	timeAccounts := loadAccounts(masterAcc, timeKeypairs)
+	log.Println("Loading aggregation accounts")
+	aggregatorAccounts := loadAccounts(masterAcc, aggregatorKeypairs)
 
 	log.Println("Loading sensor accounts")
 	sensorAccounts := loadAccounts(masterAcc, sensorKeypairs)
@@ -39,11 +43,11 @@ func main() {
 	log.Println("Loading functions asset account")
 	assetAccount := helpers.MustLoadAccount(functions.AssetKeypair.Address())
 
-	createTrustlines(masterAcc, timeKeypairs, timeAccounts, "core")
-	createTrustlines(masterAcc, sensorKeypairs, sensorAccounts, "core")
+	createTrustlines(masterAcc, aggregatorKeypairs, aggregatorAccounts, "horizon")
+	createTrustlines(masterAcc, sensorKeypairs, sensorAccounts, "horizon")
 
 	for _, v := range functions.Assets {
-		helpers.MustFundAccountsEvenly(masterAcc, assetAccount, functions.AssetKeypair, timeKeypairs, v)
+		helpers.MustFundAccountsEvenly(masterAcc, assetAccount, functions.AssetKeypair, aggregatorKeypairs, v)
 	}
 
 	// log.Println("Loaded tmie accounts", accounts)
@@ -56,11 +60,10 @@ func main() {
 
 	defer dbpool.Close()
 
-	aggregateForNBlocksInterval(dbpool, 1, sensorKeypairs[0], timeAccounts[0], timeKeypairs[0])
-	aggregateForNBlocksInterval(dbpool, 2, sensorKeypairs[0], timeAccounts[1], timeKeypairs[1])
-	aggregateForNBlocksInterval(dbpool, 3, sensorKeypairs[0], timeAccounts[2], timeKeypairs[2])
-	aggregateForNBlocksInterval(dbpool, 6, sensorKeypairs[0], timeAccounts[3], timeKeypairs[3])
-	aggregateForNBlocksInterval(dbpool, 12, sensorKeypairs[0], timeAccounts[4], timeKeypairs[4])
+	for i, v := range aggregator.Aggregators {
+		log.Println("Aggregating on: ", v.Name)
+		aggregateForNBlocksInterval(dbpool, v.Blocks, sensorKeypairs[0], aggregatorAccounts[i], v.Keypair)
+	}
 }
 
 type TimeIndex struct {
@@ -126,16 +129,22 @@ func proceed(tx *txnbuild.Transaction, op *txnbuild.Payment) {
 func aggregateForNBlocksInterval(dbpool *pgxpool.Pool, blocks int64, aggregatingOn *keypair.Full, timeAccount *horizon.Account, timeKeypair *keypair.Full) {
 	log.Printf("Aggregating for account = %s for and collecting on %s", aggregatingOn.Address(), timeAccount.AccountID)
 
-	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC", aggregatingOn.Address())
-	var firstLedgerSeq int64
-	err := row.Scan(&firstLedgerSeq)
+	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence, account_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC LIMIT 1", aggregatingOn.Address())
+	var (
+		firstLedgerSeq  int64
+		firstAccountSeq int64
+	)
+	err := row.Scan(&firstLedgerSeq, &firstAccountSeq)
 	if err != nil {
 		log.Fatal("Did not find first row")
 	}
 
-	row = dbpool.QueryRow(context.Background(), "SELECT ledger_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence DESC", aggregatingOn.Address())
-	var lastLedgerSeq int64
-	row.Scan(&lastLedgerSeq)
+	row = dbpool.QueryRow(context.Background(), "SELECT ledger_sequence, account_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence DESC LIMIT 1", aggregatingOn.Address())
+	var (
+		lastLedgerSeq  int64
+		lastAccountSeq int64
+	)
+	row.Scan(&lastLedgerSeq, &lastAccountSeq)
 	if err != nil {
 		log.Fatal("Did not find last row")
 	}
@@ -148,9 +157,9 @@ func aggregateForNBlocksInterval(dbpool *pgxpool.Pool, blocks int64, aggregating
 		}
 		log.Printf("avg: %d min: %d max: %d\n", avg, min, max)
 
-		aggregator.SendAvgTransaction(timeAccount, timeKeypair, avg, aggregatingOn.Address(), currentLedger, currentLedger+blocks)
-		aggregator.SendMinTransaction(timeAccount, timeKeypair, min, aggregatingOn.Address(), currentLedger, currentLedger+blocks)
-		aggregator.SendMaxTransaction(timeAccount, timeKeypair, max, aggregatingOn.Address(), currentLedger, currentLedger+blocks)
+		aggregator.SendTransaction(timeAccount, timeKeypair, functions.AVG, avg, aggregatingOn.Address(), firstAccountSeq, lastAccountSeq)
+		aggregator.SendTransaction(timeAccount, timeKeypair, functions.MIN, min, aggregatingOn.Address(), firstAccountSeq, lastAccountSeq)
+		aggregator.SendTransaction(timeAccount, timeKeypair, functions.MAX, max, aggregatingOn.Address(), firstAccountSeq, lastAccountSeq)
 	}
 	log.Printf("Finished aggregating 5 blocks from %d to %d\n", firstLedgerSeq, lastLedgerSeq)
 }

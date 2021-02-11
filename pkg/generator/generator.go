@@ -45,7 +45,7 @@ type SendLogResult struct {
 	Error            error
 }
 
-func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
+func SendLogTxToHorizon(params SensorDevice, eventIndex int) SendLogResult {
 	seqNum, err := strconv.ParseInt(params.Account().Sequence, 10, 64)
 	if err != nil {
 		return SendLogResult{Error: err}
@@ -92,7 +92,7 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 				log.Fatalf("Error submitting sendLogTx to horizon, log device: %d log no. %d error: %s", params.DeviceId, eventIndex, err)
 			}
 		}
-		log.Printf("Success sending log deviceId %d log no. %d %s", params.DeviceId, eventIndex, string(resp.ResultXdr))
+		log.Printf("Success sending log deviceId %02d log no. %d %s", params.DeviceId, eventIndex, string(resp.ResultXdr))
 		return SendLogResult{HorizonResponse: &resp, Error: err}
 	} else if helpers.SendTxTo == "stellar-core" {
 		body, err := sendLogToStellarCode(params, eventIndex, memo)
@@ -136,7 +136,7 @@ func sendLogToStellarCode(params SensorDevice, eventIndex int, memo txnbuild.Mem
 		return "", err
 	} else {
 		if !strings.Contains(string(body), "ERROR") {
-			log.Printf("Success sending log deviceId %d log no. %d %s", params.DeviceId, eventIndex, string(body))
+			log.Printf("Success sending log deviceId %02d log no. %d %s", params.DeviceId, eventIndex, string(body))
 			return string(body), nil
 		} else {
 			if strings.Contains(string(body), "AAAAAAAAAAH////7AAAAAA==") {

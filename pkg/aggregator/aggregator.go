@@ -17,6 +17,112 @@ import (
 	"github.com/stellot/stellot-iot/pkg/usecases"
 )
 
+type Aggregator struct {
+	Name         string
+	TimeInterval TimeInterval
+	Blocks       int64
+	Keypair      *keypair.Full
+}
+
+type TimeInterval uint
+
+const (
+	TX TimeInterval = iota
+
+	FIVE_SECS
+	THIRTY_SECS
+
+	ONE_MIN
+	FIVE_MINS
+	THIRTY_MINS
+
+	ONE_HOUR
+	SIX_HOURS
+	TWELVE_HOURS
+
+	ONE_DAY
+)
+
+var Aggregators = []Aggregator{
+	// {
+	// 	Name:         "tx",
+	// 	TimeInterval: TX,
+	// 	Blocks:       0,
+	// 	Keypair:      nil,
+	// },
+
+	// Seconds
+	{
+		Name:         "5 secs",
+		TimeInterval: FIVE_SECS,
+		Blocks:       1,
+		Keypair:      helpers.FiveSecondsKeypair,
+	},
+	{
+		Name:         "30 secs",
+		TimeInterval: THIRTY_SECS,
+		Blocks:       6,
+		Keypair:      helpers.ThirtySecondsKeypair,
+	},
+
+	// Minutes
+	{
+		Name:         "1 min",
+		TimeInterval: ONE_MIN,
+		Blocks:       12,
+		Keypair:      helpers.OneMinuteKeypair,
+	},
+	{
+		Name:         "5 min",
+		TimeInterval: FIVE_MINS,
+		Blocks:       60,
+		Keypair:      helpers.FiveMinutesKeypair,
+	},
+	{
+		Name:         "30 min",
+		TimeInterval: THIRTY_MINS,
+		Blocks:       360,
+		Keypair:      helpers.ThirtyMinutesKeypair,
+	},
+
+	// Hours
+	{
+		Name:         "1 hours",
+		TimeInterval: ONE_HOUR,
+		Blocks:       720,
+		Keypair:      helpers.OneHourKeypair,
+	},
+	{
+		Name:         "6 hours",
+		TimeInterval: SIX_HOURS,
+		Blocks:       4320,
+		Keypair:      helpers.SixHoursKeypair,
+	},
+	{
+		Name:         "12 hours",
+		TimeInterval: TWELVE_HOURS,
+		Blocks:       8640,
+		Keypair:      helpers.TwelveHoursKeypair,
+	},
+
+	// Days
+	{
+		Name:         "1 day",
+		TimeInterval: ONE_DAY,
+		Blocks:       17280,
+		Keypair:      helpers.OneDayKeypair,
+	},
+}
+
+func ByTimeInterval(timeInterval TimeInterval) Aggregator {
+	for _, v := range Aggregators {
+		if v.TimeInterval == timeInterval {
+			return v
+		}
+	}
+	panic("Unsupported time interval")
+}
+
 func CalculateFunctionsForLedger(dbpool *pgxpool.Pool, sensorAddress string, ledgerSeq int64) (avg int, min int, max int, err error) {
 	rows, err := dbpool.Query(context.Background(), "SELECT memo, tx_envelope FROM history_transactions WHERE account = $1 AND ledger_sequence = $2", sensorAddress, ledgerSeq)
 	if err != nil {
@@ -231,16 +337,8 @@ func getLogValue(tx *txnbuild.Transaction, op *txnbuild.Payment) int {
 	return int(intValue)
 }
 
-func SendAvgTransaction(sourceAcc *horizon.Account, keypair *keypair.Full, avg int, sensorAddress string, startLedger int64, endLedger int64) {
-	sendAggreateMessage(sourceAcc, keypair, avg, functions.AVG, sensorAddress, startLedger, endLedger)
-}
-
-func SendMinTransaction(sourceAcc *horizon.Account, keypair *keypair.Full, avg int, sensorAddress string, startLedger int64, endLedger int64) {
-	sendAggreateMessage(sourceAcc, keypair, avg, functions.MIN, sensorAddress, startLedger, endLedger)
-}
-
-func SendMaxTransaction(sourceAcc *horizon.Account, keypair *keypair.Full, avg int, sensorAddress string, startLedger int64, endLedger int64) {
-	sendAggreateMessage(sourceAcc, keypair, avg, functions.MAX, sensorAddress, startLedger, endLedger)
+func SendTransaction(sourceAcc *horizon.Account, keypair *keypair.Full, function functions.FunctionType, avg int, sensorAddress string, startAccountSeq int64, endAccountSeq int64) {
+	sendAggreateMessage(sourceAcc, keypair, avg, function, sensorAddress, startAccountSeq, endAccountSeq)
 }
 
 func sendAggreateMessage(sourceAcc *horizon.Account, keypair *keypair.Full, value int, functionType functions.FunctionType, sensorAddress string, startLedger int64, endLedger int64) {

@@ -36,11 +36,23 @@ var (
 	Tps, _                 = strconv.Atoi(utils.MustGetenv("TPS"))
 	TimeOut, _             = strconv.ParseInt(utils.MustGetenv("SEND_TO_CORE_TIMEOUT_SECONDS"), 10, 64)
 	BatchKeypair           = keypair.MustParseFull(utils.MustGetenv("BATCH_SECRET_KEY"))
-	FiveSecondsKeypair     = keypair.MustParseFull(utils.MustGetenv("FIVE_SECONDS_SECRET"))
-	TenSecondsKeypair      = keypair.MustParseFull(utils.MustGetenv("TEN_SECONDS_SECRET"))
-	ThirtySecondsKeypair   = keypair.MustParseFull(utils.MustGetenv("THIRTY_SECONDS_SECRET"))
-	OneMinuteKeypair       = keypair.MustParseFull(utils.MustGetenv("ONE_MINUTE_SECRET"))
-	TimeIndexAccounts      = []*keypair.Full{FiveSecondsKeypair, TenSecondsKeypair, ThirtySecondsKeypair, OneMinuteKeypair}
+
+	// Seconds
+	FiveSecondsKeypair   = keypair.MustParseFull(utils.MustGetenv("FIVE_SECONDS_SECRET"))
+	ThirtySecondsKeypair = keypair.MustParseFull(utils.MustGetenv("THIRTY_SECONDS_SECRET"))
+
+	// Minutes
+	OneMinuteKeypair     = keypair.MustParseFull(utils.MustGetenv("ONE_MINUTE_SECRET"))
+	FiveMinutesKeypair   = keypair.MustParseFull(utils.MustGetenv("FIVE_MINUTES_SECRET"))
+	ThirtyMinutesKeypair = keypair.MustParseFull(utils.MustGetenv("THIRTY_MINUTES_SECRET"))
+
+	// Hours
+	OneHourKeypair     = keypair.MustParseFull(utils.MustGetenv("ONE_HOUR_SECRET"))
+	SixHoursKeypair    = keypair.MustParseFull(utils.MustGetenv("SIX_HOURS_SECRET"))
+	TwelveHoursKeypair = keypair.MustParseFull(utils.MustGetenv("TWELVE_HOURS_SECRET"))
+
+	// Days
+	OneDayKeypair = keypair.MustParseFull(utils.MustGetenv("ONE_DAY_SECRET"))
 )
 
 func BlockUntilHorizonIsReady() {
@@ -102,6 +114,7 @@ func MustLoadAccount(accountId string) *horizon.Account {
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Printf("Successfully loaded account %s", accountId)
 	return &masterAccount
 }
 

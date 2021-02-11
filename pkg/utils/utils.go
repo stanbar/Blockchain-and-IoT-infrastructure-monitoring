@@ -3,6 +3,7 @@ package utils
 import (
 	"log"
 	"os"
+	"time"
 
 	"github.com/stellar/go/keypair"
 )
@@ -32,4 +33,12 @@ func ChunkKeypairs(slice []*keypair.Full, chunkSize int) [][]*keypair.Full {
 		slice = slice[chunkSize:]
 	}
 	return chunks
+}
+
+func Track(msg string) (string, time.Time) {
+	return msg, time.Now()
+}
+
+func Duration(msg string, start time.Time) {
+	log.Printf("%v: %v\n", msg, time.Since(start))
 }

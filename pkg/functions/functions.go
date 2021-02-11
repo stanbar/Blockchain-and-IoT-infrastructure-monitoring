@@ -12,8 +12,6 @@ const (
 	AVG FunctionType = iota
 	MIN
 	MAX
-	FROM
-	TO
 )
 
 var (
@@ -25,7 +23,7 @@ var (
 
 	AssetKeypair = keypair.MustParseFull(utils.MustGetenv("FUNCTIONS_ASSET_ISSUER_SECRET"))
 	AssetIssuer  = AssetKeypair.Address()
-	Assets       = []txnbuild.Asset{AVG.Asset(), MIN.Asset(), MAX.Asset(), FROM.Asset(), TO.Asset()}
+	Assets       = []txnbuild.Asset{AVG.Asset(), MIN.Asset(), MAX.Asset()}
 )
 
 func (ft FunctionType) Asset() txnbuild.Asset {
@@ -33,10 +31,6 @@ func (ft FunctionType) Asset() txnbuild.Asset {
 		return txnbuild.CreditAsset{Code: AvgAssetName, Issuer: AssetIssuer}
 	} else if ft == MIN {
 		return txnbuild.CreditAsset{Code: MinAssetName, Issuer: AssetIssuer}
-	} else if ft == FROM {
-		return txnbuild.CreditAsset{Code: FromAssetName, Issuer: AssetIssuer}
-	} else if ft == TO {
-		return txnbuild.CreditAsset{Code: ToAssetName, Issuer: AssetIssuer}
 	}
 	return txnbuild.CreditAsset{Code: MaxAssetName, Issuer: AssetIssuer}
 }
