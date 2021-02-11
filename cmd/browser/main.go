@@ -55,6 +55,8 @@ func main() {
 	// 	log.Println("max < 700", res)
 	// }
 
+	// getValuesPredicateTx(dbpool, usecases.HUMD, helpers.DevicesKeypairs[0], "<", 700)
+
 	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.TEMP, functions.AVG, 2, aggregator.SIX_HOURS)
 }
 
@@ -134,6 +136,56 @@ func countTxs(dbpool *pgxpool.Pool, sensorAddress string, usecase usecases.Physi
 	log.Println("count: ", count)
 }
 
+func getValuesPredicateTx(dbpool *pgxpool.Pool, usecase usecases.PhysicsType, sensor *keypair.Full, operation string, predicate int) []int {
+	defer utils.Duration(utils.Track("getValuesPredicateTx"))
+	from := sensor.Address()
+	to := helpers.BatchKeypair.Address()
+	assetCode := usecase.Asset().GetCode()
+
+	log.Println("from: ", from, " to: ", to, " assetCode: ", assetCode)
+
+	start := time.Now()
+	rows, err := dbpool.Query(context.Background(), `
+  SELECT memo, account_sequence FROM history_operations ops
+  JOIN history_transactions txs on ops.transaction_id = txs.id
+  WHERE type = 1
+    AND details->>'from' = $1
+    AND details->>'to' = $2
+    AND details->>'asset_code' = $3
+  ORDER BY account_sequence DESC
+  `, from, to, assetCode)
+	log.Println("execute sql", time.Since(start))
+
+	if err != nil {
+		panic(err)
+	}
+
+	start = time.Now()
+	values := []int{}
+	for _, v := range parseValues(rows, sensor, to) {
+		switch operation {
+		case ">":
+			if v > predicate {
+				values = append(values, v)
+			}
+		case ">=":
+			if v >= predicate {
+				values = append(values, v)
+			}
+		case "<":
+			if v < predicate {
+				values = append(values, v)
+			}
+		case "<=":
+			if v <= predicate {
+				values = append(values, v)
+			}
+		}
+	}
+	log.Printf("parsed %d values in %s", len(values), time.Since(start))
+	return values
+}
+
 func getValuesFromPeroid(dbpool *pgxpool.Pool, function string, sensorAddress string, aggregator aggregator.Aggregator, lastTxs int) []int {
 	defer utils.Duration(utils.Track("getValuesFromPeroid"))
 	start := time.Now()
@@ -170,8 +222,7 @@ func getValuesPredicate(dbpool *pgxpool.Pool, function string, sensorAddress str
   ORDER BY account_sequence DESC
   `, aggregator.Keypair.Address(), sensorAddress, function)
 
-	elapsed := time.Since(start)
-	log.Println("execute sql", elapsed)
+	log.Println("execute sql", time.Since(start))
 
 	if err != nil {
 		panic(err)
@@ -223,7 +274,7 @@ func getFromLastNFiveSecondsIntervals(dbpool *pgxpool.Pool, function string, tim
 	return parseValues(rows, timeKeypair, sensorAddres)
 }
 
-func parseValues(rows pgx.Rows, timeKeypair *keypair.Full, sensorAddress string) []int {
+func parseValues(rows pgx.Rows, sender *keypair.Full, receiver string) []int {
 	values := make([]int, 0)
 
 	for rows.Next() {
@@ -235,7 +286,7 @@ func parseValues(rows pgx.Rows, timeKeypair *keypair.Full, sensorAddress string)
 		if err != nil {
 			log.Fatal(err)
 		}
-		intValue := decodeMemo(memo, accountSeq, timeKeypair, sensorAddress)
+		intValue := decodeMemo(memo, accountSeq, sender, receiver)
 		values = append(values, int(intValue))
 	}
 	return values
