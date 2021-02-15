@@ -3,6 +3,7 @@ package usecases
 import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellot/stellot-iot/pkg/usecases/humidity"
 	"github.com/stellot/stellot-iot/pkg/usecases/temperature"
 	"github.com/stellot/stellot-iot/pkg/utils"
 )
@@ -26,7 +27,7 @@ func (pt PhysicsType) RandomValue() [32]byte {
 	if pt == TEMP {
 		return temperature.RandomTemperature()
 	}
-	return RandomHumidity()
+	return humidity.RandomHumidity()
 }
 
 func (pt PhysicsType) Asset() txnbuild.Asset {
