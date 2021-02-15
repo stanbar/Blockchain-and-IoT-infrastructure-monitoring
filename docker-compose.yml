@@ -4,6 +4,8 @@ services:
     image: stasbar/stellot-quickstart
     env_file: stellar-core.env
     command: "--privnet"
+    volumes:
+      - "/mnt/docker-volumes/stellar-iot/node1:/opt/stellar"
     ports:
       - 5432:5432
       - 9001:8000
@@ -17,6 +19,8 @@ services:
     image: stasbar/stellot-quickstart
     env_file: stellar-core.env
     command: "--privnet"
+    volumes:
+      - "/mnt/docker-volumes/stellar-iot/node2:/opt/stellar"
     ports:
       - 9002:8000
     environment:
@@ -28,6 +32,8 @@ services:
     image: stasbar/stellot-quickstart
     env_file: stellar-core.env
     command: "--privnet"
+    volumes:
+      - "/mnt/docker-volumes/stellar-iot/node3:/opt/stellar"
     ports:
       - 9003:8000
     environment:

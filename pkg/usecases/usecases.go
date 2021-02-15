@@ -3,6 +3,7 @@ package usecases
 import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellot/stellot-iot/pkg/usecases/temperature"
 	"github.com/stellot/stellot-iot/pkg/utils"
 )
 
@@ -21,11 +22,11 @@ var (
 	AssetIssuer  = AssetKeypair.Address()
 )
 
-func (pt PhysicsType) RandomValue(offset int) [32]byte {
+func (pt PhysicsType) RandomValue() [32]byte {
 	if pt == TEMP {
-		return RandomTemperature(offset)
+		return temperature.RandomTemperature()
 	}
-	return RandomHumidity(offset)
+	return RandomHumidity()
 }
 
 func (pt PhysicsType) Asset() txnbuild.Asset {

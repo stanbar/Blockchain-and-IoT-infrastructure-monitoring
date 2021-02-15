@@ -1,4 +1,4 @@
-package usecases
+package humidity
 
 import (
 	"math"
@@ -7,14 +7,20 @@ import (
 	"time"
 )
 
-var humBase = 40.0
+const (
+	baseHum   = 60.0
+	baseHumAt = 10.0
+	amp       = 20
+)
 
-var hums = []float64{4, 3, 2, 1, 2, 3, 6, 10, 12, 14, 15, 18,
-	20, 22, 22, 20, 18, 19, 16, 14, 12, 10, 8, 6}
+func SinValue(hourDotMinutes float64) float64 {
+	return baseHum + amp*math.Cos(math.Pi/12.0*(hourDotMinutes-baseHumAt)+math.Pi)
+}
+
+var now = time.Now
 
 func RandomHumidity() [32]byte {
-	now := time.Now()
-
+	now := now()
 	hourDotMinutes := float64(now.Hour()) + (0.0169491 * float64(now.Minute()))
 
 	temp := SinValue(hourDotMinutes)

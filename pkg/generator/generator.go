@@ -51,7 +51,8 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 		return SendLogResult{Error: err}
 	}
 
-	logValue := params.PhysicsType.RandomValue(eventIndex + params.DeviceId)
+  
+	logValue := params.PhysicsType.RandomValue()
 	payload, err := crypto.EncryptToMemo(seqNum+1, params.Keypair(), helpers.BatchKeypair.Address(), logValue)
 	memo := txnbuild.MemoHash(*payload)
 
