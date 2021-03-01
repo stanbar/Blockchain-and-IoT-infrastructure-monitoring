@@ -17,16 +17,20 @@ func SinValue(hourDotMinutes float64) float64 {
 	return baseHum + amp*math.Cos(math.Pi/12.0*(hourDotMinutes-baseHumAt)+math.Pi)
 }
 
+func MutByDeviation(val float64) float64 {
+	return val + val*(rand.Float64()-0.5)/70
+}
+
 var now = time.Now
 
 func RandomHumidity() [32]byte {
 	now := now()
 	hourDotMinutes := float64(now.Hour()) + (0.0169491 * float64(now.Minute()))
 
-	temp := SinValue(hourDotMinutes)
-	temp = temp + temp*rand.Float64()
+	humd := SinValue(hourDotMinutes)
+	humd = MutByDeviation(humd)
 
-	multipled := temp * 10
+	multipled := humd * 10
 	result := int(math.Round(multipled))
 	var output [32]byte
 	copy(output[:], strconv.Itoa(result))
