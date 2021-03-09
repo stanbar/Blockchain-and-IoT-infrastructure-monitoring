@@ -57,7 +57,17 @@ func main() {
 
 	// getValuesPredicateTx(dbpool, usecases.HUMD, helpers.DevicesKeypairs[0], "<", 700)
 
-	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.TEMP, functions.AVG, 2, aggregator.SIX_HOURS)
+	// countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.TEMP, functions.AVG, 2, aggregator.SIX_HOURS)
+	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.FIVE_SECS)
+	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.THIRTY_SECS)
+	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.ONE_MIN)
+	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.FIVE_MINS)
+	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.THIRTY_MINS)
+
+	values := getValuesPredicate(dbpool, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.FIVE_SECS), "<", 700)
+	log.Println(values)
+	values = getValuesPredicateTx(dbpool, usecases.HUMD, helpers.DevicesKeypairs[0], "<", 700)
+	log.Println(values)
 }
 
 func countTxs(dbpool *pgxpool.Pool, sensorAddress string, usecase usecases.PhysicsType, function functions.FunctionType, lastTxs int, timeInterval aggregator.TimeInterval) {
@@ -128,8 +138,12 @@ func countTxs(dbpool *pgxpool.Pool, sensorAddress string, usecase usecases.Physi
 	log.Println("executed sql", time.Since(start))
 
 	var count int64
+	log.Println("scanning")
 	err = row.Scan(&count)
+	log.Println("after scanning")
 	if err != nil {
+		log.Println("Error")
+		log.Fatal(err)
 		panic(err)
 	}
 
@@ -157,6 +171,7 @@ func getValuesPredicateTx(dbpool *pgxpool.Pool, usecase usecases.PhysicsType, se
 	log.Println("execute sql", time.Since(start))
 
 	if err != nil {
+		log.Fatalln(err)
 		panic(err)
 	}
 
@@ -186,7 +201,7 @@ func getValuesPredicateTx(dbpool *pgxpool.Pool, usecase usecases.PhysicsType, se
 	return values
 }
 
-func getValuesFromPeroid(dbpool *pgxpool.Pool, function string, sensorAddress string, aggregator aggregator.Aggregator, lastTxs int) []int {
+func getValuesFromPeroid(dbpool *pgxpool.Pool, function functions.FunctionType, sensorAddress string, aggregator aggregator.Aggregator, lastTxs int) []int {
 	defer utils.Duration(utils.Track("getValuesFromPeroid"))
 	start := time.Now()
 	rows, err := dbpool.Query(context.Background(), `
@@ -198,7 +213,7 @@ func getValuesFromPeroid(dbpool *pgxpool.Pool, function string, sensorAddress st
     AND details->>'asset_code' = $3
   ORDER BY account_sequence DESC
   LIMIT $4;
-  `, aggregator.Keypair.Address(), sensorAddress, function, lastTxs)
+  `, aggregator.Keypair.Address(), sensorAddress, function.Asset().GetCode(), lastTxs)
 
 	elapsed := time.Since(start)
 	log.Println("execute sql", elapsed)
@@ -209,8 +224,8 @@ func getValuesFromPeroid(dbpool *pgxpool.Pool, function string, sensorAddress st
 	return parseValues(rows, aggregator.Keypair, sensorAddress)
 }
 
-func getValuesPredicate(dbpool *pgxpool.Pool, function string, sensorAddress string, aggregator aggregator.Aggregator, operation string, predicate int) []int {
-	defer utils.Duration(utils.Track("getValuesFromPeroid"))
+func getValuesPredicate(dbpool *pgxpool.Pool, function functions.FunctionType, sensorAddress string, aggregator aggregator.Aggregator, operation string, predicate int) []int {
+	defer utils.Duration(utils.Track("getValuesPredicate"))
 	start := time.Now()
 	rows, err := dbpool.Query(context.Background(), `
   SELECT memo, account_sequence FROM history_operations ops
@@ -220,11 +235,12 @@ func getValuesPredicate(dbpool *pgxpool.Pool, function string, sensorAddress str
     AND details->>'to' = $2
     AND details->>'asset_code' = $3
   ORDER BY account_sequence DESC
-  `, aggregator.Keypair.Address(), sensorAddress, function)
+  `, aggregator.Keypair.Address(), sensorAddress, function.Asset().GetCode())
 
 	log.Println("execute sql", time.Since(start))
 
 	if err != nil {
+		log.Fatal(err)
 		panic(err)
 	}
 
@@ -252,7 +268,7 @@ func getValuesPredicate(dbpool *pgxpool.Pool, function string, sensorAddress str
 	return values
 }
 
-func getFromLastNFiveSecondsIntervals(dbpool *pgxpool.Pool, function string, timeKeypair *keypair.Full, sensorAddres string, lastBlocks int64) []int {
+func getFromLastNFiveSecondsIntervals(dbpool *pgxpool.Pool, function functions.FunctionType, timeKeypair *keypair.Full, sensorAddres string, lastBlocks int64) []int {
 	start := time.Now()
 	rows, err := dbpool.Query(context.Background(), `
   SELECT memo, account_sequence FROM history_operations ops
@@ -263,7 +279,7 @@ func getFromLastNFiveSecondsIntervals(dbpool *pgxpool.Pool, function string, tim
     AND details->>'asset_code' = $3
   ORDER BY account_sequence DESC
   LIMIT $4;
-`, timeKeypair.Address(), sensorAddres, function, lastBlocks)
+`, timeKeypair.Address(), sensorAddres, function.Asset().GetCode(), lastBlocks)
 
 	elapsed := time.Since(start)
 	log.Println("execute sql", elapsed)

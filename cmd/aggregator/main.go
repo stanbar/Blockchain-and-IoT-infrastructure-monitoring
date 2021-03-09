@@ -17,6 +17,7 @@ import (
 	"github.com/stellot/stellot-iot/pkg/crypto"
 	"github.com/stellot/stellot-iot/pkg/functions"
 	"github.com/stellot/stellot-iot/pkg/helpers"
+	"github.com/stellot/stellot-iot/pkg/utils"
 )
 
 func main() {
@@ -126,10 +127,11 @@ func proceed(tx *txnbuild.Transaction, op *txnbuild.Payment) {
 	log.Println("decrypted memo:", string(decrypted[:]))
 }
 
-func aggregateForNBlocksInterval(dbpool *pgxpool.Pool, blocks int64, aggregatingOn *keypair.Full, timeAccount *horizon.Account, timeKeypair *keypair.Full) {
-	log.Printf("Aggregating for account = %s for and collecting on %s", aggregatingOn.Address(), timeAccount.AccountID)
+func aggregateForNBlocksInterval(dbpool *pgxpool.Pool, blocks int64, sensor *keypair.Full, timeAccount *horizon.Account, timeKeypair *keypair.Full) {
+	defer utils.Duration(utils.Track("aggregateForNBlocksInterval"))
+	log.Printf("Aggregating for account = %s for and collecting on %s", sensor.Address(), timeAccount.AccountID)
 
-	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence, account_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC LIMIT 1", aggregatingOn.Address())
+	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence, account_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC LIMIT 1", sensor.Address())
 	var (
 		firstLedgerSeq  int64
 		firstAccountSeq int64
@@ -139,7 +141,7 @@ func aggregateForNBlocksInterval(dbpool *pgxpool.Pool, blocks int64, aggregating
 		log.Fatal("Did not find first row")
 	}
 
-	row = dbpool.QueryRow(context.Background(), "SELECT ledger_sequence, account_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence DESC LIMIT 1", aggregatingOn.Address())
+	row = dbpool.QueryRow(context.Background(), "SELECT ledger_sequence, account_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence DESC LIMIT 1", sensor.Address())
 	var (
 		lastLedgerSeq  int64
 		lastAccountSeq int64
@@ -150,16 +152,16 @@ func aggregateForNBlocksInterval(dbpool *pgxpool.Pool, blocks int64, aggregating
 	}
 
 	for currentLedger := firstLedgerSeq; currentLedger < lastLedgerSeq; currentLedger += blocks {
-		avg, min, max, err := aggregator.CalculateFunctionsForLedgers(dbpool, aggregatingOn.Address(), currentLedger, currentLedger+blocks) // what ledgerSeq to use ?
+		avg, min, max, startAccSeq, endAccSeq, err := aggregator.CalculateFunctionsForLedgers(dbpool, sensor.Address(), currentLedger, currentLedger+blocks) // what ledgerSeq to use ?
 		if err != nil {
 			log.Println(err)
 			continue
 		}
 		log.Printf("avg: %d min: %d max: %d\n", avg, min, max)
 
-		aggregator.SendTransaction(timeAccount, timeKeypair, functions.AVG, avg, aggregatingOn.Address(), firstAccountSeq, lastAccountSeq)
-		aggregator.SendTransaction(timeAccount, timeKeypair, functions.MIN, min, aggregatingOn.Address(), firstAccountSeq, lastAccountSeq)
-		aggregator.SendTransaction(timeAccount, timeKeypair, functions.MAX, max, aggregatingOn.Address(), firstAccountSeq, lastAccountSeq)
+		aggregator.SendTransaction(timeAccount, timeKeypair, functions.AVG, avg, sensor.Address(), *startAccSeq, *endAccSeq)
+		aggregator.SendTransaction(timeAccount, timeKeypair, functions.MIN, min, sensor.Address(), *startAccSeq, *endAccSeq)
+		aggregator.SendTransaction(timeAccount, timeKeypair, functions.MAX, max, sensor.Address(), *startAccSeq, *endAccSeq)
 	}
-	log.Printf("Finished aggregating 5 blocks from %d to %d\n", firstLedgerSeq, lastLedgerSeq)
+	log.Printf("Finished aggregating %d blocks from %d to %d\n", blocks, firstLedgerSeq, lastLedgerSeq)
 }

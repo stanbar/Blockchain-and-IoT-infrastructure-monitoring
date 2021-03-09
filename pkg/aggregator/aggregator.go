@@ -15,6 +15,7 @@ import (
 	"github.com/stellot/stellot-iot/pkg/functions"
 	"github.com/stellot/stellot-iot/pkg/helpers"
 	"github.com/stellot/stellot-iot/pkg/usecases"
+	"github.com/stellot/stellot-iot/pkg/utils"
 )
 
 type Aggregator struct {
@@ -186,8 +187,8 @@ func CalculateFunctionsForLedger(dbpool *pgxpool.Pool, sensorAddress string, led
 	return
 }
 
-func CalculateFunctionsForLedgers(dbpool *pgxpool.Pool, sensorAddress string, ledgerSeqStart int64, ledgerSeqEnd int64) (avg int, min int, max int, err error) {
-	rows, err := dbpool.Query(context.Background(), "SELECT memo, tx_envelope FROM history_transactions WHERE account = $1 AND ledger_sequence >= $2 AND ledger_sequence < $3", sensorAddress, ledgerSeqStart, ledgerSeqEnd) // should we care about sensor sequences or time index accounts ?
+func CalculateFunctionsForLedgers(dbpool *pgxpool.Pool, sensorAddress string, ledgerSeqStart int64, ledgerSeqEnd int64) (avg int, min int, max int, startAccountSeq *int64, endAccountSeq *int64, err error) {
+	rows, err := dbpool.Query(context.Background(), "SELECT account_sequence, memo, tx_envelope FROM history_transactions WHERE account = $1 AND ledger_sequence >= $2 AND ledger_sequence < $3", sensorAddress, ledgerSeqStart, ledgerSeqEnd) // should we care about sensor sequences or time index accounts ?
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -195,13 +196,19 @@ func CalculateFunctionsForLedgers(dbpool *pgxpool.Pool, sensorAddress string, le
 
 	for rows.Next() {
 		var (
+			accountSeq int64
 			memo       string
 			txenvelope string
 		)
-		err := rows.Scan(&memo, &txenvelope)
+		err := rows.Scan(&accountSeq, &memo, &txenvelope)
 		if err != nil {
 			log.Fatal(err)
 		}
+		if startAccountSeq == nil {
+			startAccountSeq = &accountSeq
+		}
+		endAccountSeq = &accountSeq
+
 		transaction, err := txnbuild.TransactionFromXDR(txenvelope)
 		if err != nil {
 			log.Fatal(err)
@@ -230,7 +237,7 @@ func CalculateFunctionsForLedgers(dbpool *pgxpool.Pool, sensorAddress string, le
 	log.Println("aggregating on values", values)
 
 	if len(values) == 0 {
-		return 0, 0, 0, errors.New("no records found")
+		return 0, 0, 0, nil, nil, errors.New("no records found")
 	}
 	var sum int
 	if len(values) > 0 {
@@ -314,6 +321,7 @@ func CalculateFunctionsForLastBlocks(dbpool *pgxpool.Pool, timeAddress string, l
 }
 
 func getLogValue(tx *txnbuild.Transaction, op *txnbuild.Payment) int {
+	defer utils.Duration(utils.Track("getLogValue"))
 	srcAccount := tx.SourceAccount()
 	genericMemo, ok := tx.Memo().(txnbuild.MemoHash)
 	if !ok {
@@ -329,7 +337,6 @@ func getLogValue(tx *txnbuild.Transaction, op *txnbuild.Payment) int {
 		log.Fatal(err)
 	}
 	decryptedValue := strings.Trim(string(decrypted[:]), string(rune(0)))
-	log.Println("decryptedValue", decryptedValue)
 	intValue, err := strconv.ParseInt(decryptedValue, 10, 32)
 	if err != nil {
 		log.Fatal(err)

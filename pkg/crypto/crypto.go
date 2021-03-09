@@ -6,11 +6,13 @@ import (
 	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"math/big"
+
 	"github.com/jorrizza/ed2curve25519"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/strkey"
+	"github.com/stellot/stellot-iot/pkg/utils"
 	"golang.org/x/crypto/curve25519"
-	"math/big"
 )
 
 func StellarAddressToPubKey(address string) ed25519.PublicKey {
@@ -44,6 +46,7 @@ func scalarMult(scalar, point []byte) ([]byte, error) {
 }
 
 func EncryptToMemo(seqNumber int64, kp *keypair.Full, to string, log [32]byte) (*[32]byte, error) {
+	defer utils.Duration(utils.Track("En/decrypt to memo"))
 	var payload []byte
 	copy(payload[:], log[:32])
 
@@ -55,7 +58,8 @@ func EncryptToMemo(seqNumber int64, kp *keypair.Full, to string, log [32]byte) (
 		return nil, err
 	}
 
-	return encrypt(seqNumber, ecdhKey, log)
+	result, err := encrypt(seqNumber, ecdhKey, log)
+	return result, err
 }
 
 func encrypt(seqNumber int64, ecdhKey []byte, msg [32]byte) (*[32]byte, error) {
