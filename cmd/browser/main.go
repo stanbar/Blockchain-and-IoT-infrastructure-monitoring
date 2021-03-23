@@ -58,16 +58,25 @@ func main() {
 	// getValuesPredicateTx(dbpool, usecases.HUMD, helpers.DevicesKeypairs[0], "<", 700)
 
 	// countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.TEMP, functions.AVG, 2, aggregator.SIX_HOURS)
-	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.FIVE_SECS)
-	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.THIRTY_SECS)
-	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.ONE_MIN)
-	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.FIVE_MINS)
-	countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.THIRTY_MINS)
+	// countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.FIVE_SECS)
+	// countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.THIRTY_SECS)
+	// countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.ONE_MIN)
+	// countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.FIVE_MINS)
+	// countTxs(dbpool, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.THIRTY_MINS)
 
-	values := getValuesPredicate(dbpool, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.FIVE_SECS), "<", 700)
-	log.Println(values)
-	values = getValuesPredicateTx(dbpool, usecases.HUMD, helpers.DevicesKeypairs[0], "<", 700)
-	log.Println(values)
+	// getValuesPredicate(dbpool, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.FIVE_SECS), "<", 700)
+	// getValuesPredicateTx(dbpool, usecases.HUMD, helpers.DevicesKeypairs[0], "<", 700)
+	values := getValuesFromPeroidTx(dbpool, helpers.DevicesKeypairs[0].Address(), 100000000000)
+	log.Println(len(values))
+	values = getValuesFromPeroid(dbpool, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.FIVE_SECS), 100000000000)
+	log.Println(len(values))
+	values = getValuesFromPeroid(dbpool, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.ONE_MIN), 100000000000)
+	log.Println(len(values))
+	values = getValuesFromPeroid(dbpool, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.ONE_HOUR), 100000000000)
+	log.Println(len(values))
+	values = getValuesFromPeroid(dbpool, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.ONE_DAY), 100000000000)
+	log.Println(len(values))
+
 }
 
 func countTxs(dbpool *pgxpool.Pool, sensorAddress string, usecase usecases.PhysicsType, function functions.FunctionType, lastTxs int, timeInterval aggregator.TimeInterval) {
@@ -224,6 +233,28 @@ func getValuesFromPeroid(dbpool *pgxpool.Pool, function functions.FunctionType, 
 	return parseValues(rows, aggregator.Keypair, sensorAddress)
 }
 
+func getValuesFromPeroidTx(dbpool *pgxpool.Pool, sensorAddress string, lastTxs int) []int {
+	defer utils.Duration(utils.Track("getValuesFromPeroidTx"))
+	start := time.Now()
+	rows, err := dbpool.Query(context.Background(), `
+  SELECT memo, account_sequence FROM history_operations ops
+  JOIN history_transactions txs on ops.transaction_id = txs.id
+  WHERE type = 1
+    AND details->>'from' = $1
+    AND details->>'to' = $2
+  ORDER BY account_sequence DESC
+  LIMIT $3;
+  `, sensorAddress, helpers.BatchKeypair.Address(), lastTxs)
+
+	elapsed := time.Since(start)
+	log.Println("execute sql", elapsed)
+
+	if err != nil {
+		panic(err)
+	}
+	return parseValues(rows, helpers.BatchKeypair, sensorAddress)
+}
+
 func getValuesPredicate(dbpool *pgxpool.Pool, function functions.FunctionType, sensorAddress string, aggregator aggregator.Aggregator, operation string, predicate int) []int {
 	defer utils.Duration(utils.Track("getValuesPredicate"))
 	start := time.Now()
@@ -306,7 +337,6 @@ func parseValues(rows pgx.Rows, sender *keypair.Full, receiver string) []int {
 		values = append(values, int(intValue))
 	}
 	return values
-
 }
 
 func decodeMemo(memo string, accountSeq int64, timeKeypair *keypair.Full, sensorAddress string) int64 {

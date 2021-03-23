@@ -11,7 +11,6 @@ import (
 	"github.com/jorrizza/ed2curve25519"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/strkey"
-	"github.com/stellot/stellot-iot/pkg/utils"
 	"golang.org/x/crypto/curve25519"
 )
 
@@ -30,6 +29,7 @@ func StellarKeypairToPrivKey(kp *keypair.Full) ed25519.PrivateKey {
 }
 
 func DeriveDHKey(privKey ed25519.PrivateKey, pubKey ed25519.PublicKey) ([]byte, error) {
+	// defer utils.Duration(utils.Track("Derive key"))
 	scalar := ed2curve25519.Ed25519PrivateKeyToCurve25519(privKey)
 	curvePub := ed2curve25519.Ed25519PublicKeyToCurve25519(pubKey)
 
@@ -46,7 +46,7 @@ func scalarMult(scalar, point []byte) ([]byte, error) {
 }
 
 func EncryptToMemo(seqNumber int64, kp *keypair.Full, to string, log [32]byte) (*[32]byte, error) {
-	defer utils.Duration(utils.Track("En/decrypt to memo"))
+	// defer utils.Duration(utils.Track("En/decrypt to memo"))
 	var payload []byte
 	copy(payload[:], log[:32])
 
