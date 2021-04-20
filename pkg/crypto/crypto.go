@@ -45,13 +45,10 @@ func scalarMult(scalar, point []byte) ([]byte, error) {
 	return curve25519.X25519(scalar, point)
 }
 
-func EncryptToMemo(seqNumber int64, kp *keypair.Full, to string, log [32]byte) (*[32]byte, error) {
+func EncryptToMemo(seqNumber int64, privKey ed25519.PrivateKey, pubKey ed25519.PublicKey, log [32]byte) (*[32]byte, error) {
 	// defer utils.Duration(utils.Track("En/decrypt to memo"))
 	var payload []byte
 	copy(payload[:], log[:32])
-
-	pubKey := StellarAddressToPubKey(to)
-	privKey := StellarKeypairToPrivKey(kp)
 
 	ecdhKey, err := DeriveDHKey(privKey, pubKey)
 	if err != nil {

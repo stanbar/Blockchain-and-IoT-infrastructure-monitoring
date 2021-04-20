@@ -12,9 +12,7 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/protocols/horizon"
-	"github.com/stellar/go/txnbuild"
 	"github.com/stellot/stellot-iot/pkg/aggregator"
-	"github.com/stellot/stellot-iot/pkg/crypto"
 	"github.com/stellot/stellot-iot/pkg/functions"
 	"github.com/stellot/stellot-iot/pkg/helpers"
 	"github.com/stellot/stellot-iot/pkg/utils"
@@ -61,9 +59,12 @@ func main() {
 
 	defer dbpool.Close()
 
-	for i, v := range aggregator.Aggregators {
-		log.Println("Aggregating on: ", v.Name)
-		aggregateForNBlocksInterval(dbpool, v.Blocks, sensorKeypairs[0], aggregatorAccounts[i], v.Keypair)
+	for _, sensorKp := range sensorKeypairs {
+		log.Println("Aggregating for sensor: ", sensorKp.Address())
+		for i, v := range aggregator.Aggregators {
+			log.Println("Aggregating on: ", v.Name)
+			aggregateForNBlocksInterval(dbpool, v.Blocks, sensorKp, aggregatorAccounts[i], v.Keypair)
+		}
 	}
 }
 
@@ -108,28 +109,8 @@ func createTrustlines(masterAcc *horizon.Account, keypairs []*keypair.Full, acco
 	helpers.MustCreateTrustlines(masterAcc, timeIndexes, functions.Assets, where)
 }
 
-func proceed(tx *txnbuild.Transaction, op *txnbuild.Payment) {
-	srcAccount := tx.SourceAccount()
-	genericMemo, ok := tx.Memo().(txnbuild.MemoHash)
-	if !ok {
-		log.Println("Can not cast memo to MemoHash")
-		return
-	}
-	memo := txnbuild.MemoHash(genericMemo)
-	seqNumber, err := srcAccount.GetSequenceNumber()
-	if err != nil {
-		log.Fatal(err)
-	}
-	decrypted, err := crypto.EncryptToMemo(seqNumber, helpers.BatchKeypair, srcAccount.GetAccountID(), memo)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("decrypted memo:", string(decrypted[:]))
-}
-
 func aggregateForNBlocksInterval(dbpool *pgxpool.Pool, blocks int64, sensor *keypair.Full, timeAccount *horizon.Account, timeKeypair *keypair.Full) {
 	defer utils.Duration(utils.Track("aggregateForNBlocksInterval"))
-	log.Printf("Aggregating for account = %s for and collecting on %s", sensor.Address(), timeAccount.AccountID)
 
 	row := dbpool.QueryRow(context.Background(), "SELECT ledger_sequence, account_sequence FROM history_transactions WHERE account = $1 ORDER BY ledger_sequence ASC LIMIT 1", sensor.Address())
 	var (
@@ -158,9 +139,11 @@ func aggregateForNBlocksInterval(dbpool *pgxpool.Pool, blocks int64, sensor *key
 			continue
 		}
 		log.Printf("avg: %d min: %d max: %d\n", avg, min, max)
-
+		time.Sleep(1000 / 50 / 3 * time.Millisecond)
 		aggregator.SendTransaction(timeAccount, timeKeypair, functions.AVG, avg, sensor.Address(), *startAccSeq, *endAccSeq)
+		time.Sleep(1000 / 50 / 3 * time.Millisecond)
 		aggregator.SendTransaction(timeAccount, timeKeypair, functions.MIN, min, sensor.Address(), *startAccSeq, *endAccSeq)
+		time.Sleep(1000 / 50 / 3 * time.Millisecond)
 		aggregator.SendTransaction(timeAccount, timeKeypair, functions.MAX, max, sensor.Address(), *startAccSeq, *endAccSeq)
 	}
 	log.Printf("Finished aggregating %d blocks from %d to %d\n", blocks, firstLedgerSeq, lastLedgerSeq)

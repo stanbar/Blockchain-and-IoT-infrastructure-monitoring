@@ -52,7 +52,9 @@ func SendLogTx(params SensorDevice, eventIndex int) SendLogResult {
 	}
 
 	logValue := params.PhysicsType.RandomValue()
-	payload, err := crypto.EncryptToMemo(seqNum+1, params.Keypair(), helpers.BatchKeypair.Address(), logValue)
+	privKey := crypto.StellarKeypairToPrivKey(params.Keypair())
+	pubKey := crypto.StellarAddressToPubKey(helpers.BatchKeypair.Address())
+	payload, err := crypto.EncryptToMemo(seqNum+1, privKey, pubKey, logValue)
 	memo := txnbuild.MemoHash(*payload)
 
 	if helpers.SendTxTo == "horizon" {
@@ -168,7 +170,7 @@ func CreateSensorDevices(keypairs []*keypair.Full) []SensorDevice {
 		}
 
 		physicType := usecases.TEMP
-		if i <= len(keypairs) {
+		if i%2 == 1 {
 			physicType = usecases.HUMD
 		}
 

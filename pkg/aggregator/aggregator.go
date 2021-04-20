@@ -332,7 +332,9 @@ func getLogValue(tx *txnbuild.Transaction, op *txnbuild.Payment) int {
 	if err != nil {
 		log.Fatal(err)
 	}
-	decrypted, err := crypto.EncryptToMemo(seqNumber, helpers.BatchKeypair, srcAccount.GetAccountID(), memo)
+	privKey := crypto.StellarKeypairToPrivKey(helpers.BatchKeypair)
+	pubKey := crypto.StellarAddressToPubKey(srcAccount.GetAccountID())
+	decrypted, err := crypto.EncryptToMemo(seqNumber, privKey, pubKey, memo)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -355,7 +357,10 @@ func sendAggreateMessage(sourceAcc *horizon.Account, keypair *keypair.Full, valu
 	}
 	var payload [32]byte
 	copy(payload[:], strconv.Itoa(value))
-	cipher, err := crypto.EncryptToMemo(seqNumber+1, keypair, sensorAddress, payload)
+
+	privKey := crypto.StellarKeypairToPrivKey(keypair)
+	pubKey := crypto.StellarAddressToPubKey(sensorAddress)
+	cipher, err := crypto.EncryptToMemo(seqNumber+1, privKey, pubKey, payload)
 	memo := txnbuild.MemoHash(*cipher)
 
 	ops := []txnbuild.Operation{
