@@ -51,10 +51,10 @@ func main() {
 	// 	log.Println("min > 500", res)
 	// }
 
-	// for _, aggregator := range aggregator.Aggregators {
-	// 	res := getValuesPredicate(dbpool, functions.MaxAssetName, helpers.DevicesKeypairs[0].Address(), aggregator, "<", 700)
-	// 	log.Println("max < 700", res)
-	// }
+	for _, aggregator := range aggregator.Aggregators {
+		res := getValuesPredicate(dbpool, functions.MAX, helpers.DevicesKeypairs[0].Address(), aggregator, "<", 700)
+		log.Println("max < 700", res)
+	}
 
 	// getValuesPredicateTx(dbpool, usecases.HUMD, helpers.DevicesKeypairs[0], "<", 700)
 
@@ -81,14 +81,14 @@ func main() {
 	// values = getValuesFromPeroid(dbpool, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.ONE_DAY), 100000000000)
 	// log.Println(len(values))
 	// values = queryFiveAggregated(dbpool, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.FIVE_SECS), 100000000000)
-	value := get3Tx(dbpool, helpers.DevicesKeypairs[0].Address())
-	log.Println(value)
-	value64 := get3Agg(dbpool, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.SIX_HOURS, 1)
-	log.Println("six hours 1", value64)
-	value64 = get3Agg(dbpool, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.SIX_HOURS, 2)
-	log.Println("six hours 2", value64)
-	value64 = get3Agg(dbpool, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.FIVE_MINS, 1)
-	log.Println("one hour 1", value64)
+	// value := get3Tx(dbpool, helpers.DevicesKeypairs[0].Address())
+	// log.Println(value)
+	// value64 := get3Agg(dbpool, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.SIX_HOURS, 1)
+	// log.Println("six hours 1", value64)
+	// value64 = get3Agg(dbpool, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.SIX_HOURS, 2)
+	// log.Println("six hours 2", value64)
+	// value64 = get3Agg(dbpool, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.FIVE_MINS, 1)
+	// log.Println("one hour 1", value64)
 
 }
 
