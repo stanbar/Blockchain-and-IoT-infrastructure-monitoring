@@ -1,2 +1,2 @@
-{"index":{"fields":["docType","deviceId"]},"ddoc":"indexDeviceIdDoc", "name":"indexDeviceId","type":"json"}
+{"index":{"fields":["deviceId"]},"ddoc":"indexDeviceIdDoc", "name":"indexDeviceId","type":"json"}
 

@@ -1,46 +1,14 @@
-/*
-Chaincode executions
-
-===== Log event
-peer chaincode invoke -C myc1 -n log_event -c '{"Args":["LogEvent","device-id",600,"HUMD","2021-05-25T11:40:52.280Z"]}'
-
-===== Invoke Aggregation
-
-peer chaincode invoke -C myc1 -n log_event -c '{"Args":["AggregateInterval", "2021-05-25T11:40:52.280Z"]}'
-
-===== Query count predicate
-
-1. GET ALL TRANSACTIONS WHERE $time$ OR $time$ OR $time$
-
-peer chaincode invoke -C myc1 -n log_event -c '{"Args":["GetFirst", "device-id", "2021-05-25", "2021-05-24", "2021-05-23"]}'
-
-2. GET ALL TRANSACTIONS WHERE $value_{min}$ $<$ $sensor_n.value$ $<$ $value_{max}$
-
-peer chaincode invoke -C myc1 -n log_event -c '{"Args":["GetSecond", "device-id", 600, 700]}'
-
-3. GET AVG($sensor_n$, $unit$) WHERE $created\_at$ $>$ time AND $created\_at$ $<$ $time$
-
-peer chaincode invoke -C myc1 -n log_event -c '{"Args":["GetThird", "device-id", "2021-05-25", "2021-05-24"]}'
-
-4. GET COUNT(*) WHERE SENSOR = $sensor_n$ AND UNIT=$unit$ AND $created\_at$ $>$ $time$
-
-peer chaincode invoke -C myc1 -n log_event -c '{"Args":["GetFourth", "device-id", "2021-05-25"]}'
-
-*/
-
-package main
+package chaincode
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
 	"github.com/hyperledger/fabric-chaincode-go/shim"
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
-	pb "github.com/hyperledger/fabric-protos-go/peer"
 )
 
 type SmartContract struct {
@@ -107,10 +75,10 @@ func (t *SmartContract) RecordLog(ctx contractapi.TransactionContextInterface, i
 	return nil
 }
 
-func (t *SmartContract) GetHistoryForKey(ctx contractapi.TransactionContextInterface, id string) pb.Response {
+func (t *SmartContract) GetHistoryForKey(ctx contractapi.TransactionContextInterface, id string) (string, error) {
 	resultsIterator, err := ctx.GetStub().GetHistoryForKey(id)
 	if err != nil {
-		return shim.Error(err.Error())
+		return err.Error(), err
 	}
 	defer resultsIterator.Close()
 
@@ -122,7 +90,7 @@ func (t *SmartContract) GetHistoryForKey(ctx contractapi.TransactionContextInter
 	for resultsIterator.HasNext() {
 		response, err := resultsIterator.Next()
 		if err != nil {
-			return shim.Error(err.Error())
+			return err.Error(), err
 		}
 		// Add a comma before array members, suppress it for the first array member
 		if bArrayMemberAlreadyWritten == true {
@@ -160,7 +128,7 @@ func (t *SmartContract) GetHistoryForKey(ctx contractapi.TransactionContextInter
 
 	fmt.Printf("- getHistoryForMarble returning:\n%s\n", buffer.String())
 
-	return shim.Success(buffer.Bytes())
+	return string(buffer.Bytes()), nil
 }
 
 func (t *SmartContract) QueryLogs(ctx contractapi.TransactionContextInterface, queryString string) ([]*Log, error) {
@@ -201,16 +169,4 @@ func constructQueryResponseFromIterator(resultsIterator shim.StateQueryIteratorI
 
 	}
 	return logs, nil
-}
-
-func main() {
-	chaincode, err := contractapi.NewChaincode(&SmartContract{})
-
-	if err != nil {
-		log.Panicf("Error creating logs chaincode: %v", err)
-	}
-
-	if err := chaincode.Start(); err != nil {
-		log.Panicf("Error starting logs chaincode: %v", err)
-	}
 }
