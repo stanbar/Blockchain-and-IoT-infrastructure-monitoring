@@ -16,16 +16,17 @@ type SmartContract struct {
 }
 
 type Log struct {
-	ID              string `json:"ID"`
-	DeviceId        string `json:"deviceId"`
+	SensorID        string `json:"sensorId"`
+	CreationTime    string `json:"creationTime"`
 	Value           int    `json:"value"`
 	MeasurementUnit string `json:"measurementUnit"` // HUMD, TEMP
 }
 
 type Aggregation struct {
-	DeviceId  string `json:"deviceId"`
+	SensorID  string `json:"sensorId"`
 	TimeFrame string `json:"timeFrame"` // 5sec, 30sec, 1min, 30min, 1h, 4h, 12h, 1d
-	Avg       int    `json:"avg"`
+	Sum       int    `json:"sum"`
+	Count     int    `json:"count"`
 	Max       int    `json:"max"`
 	Min       int    `json:"min"`
 }
@@ -33,34 +34,41 @@ type Aggregation struct {
 // InitLedger creates the initial set of assets in the ledger.
 func (t *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
 	logs := []Log{
-		{ID: "asdf-2021-05-25", DeviceId: "asdf", Value: 600, MeasurementUnit: "HUMD"},
-		{ID: "asdf-2021-05-25", DeviceId: "asdf", Value: 610, MeasurementUnit: "HUMD"},
-		{ID: "asdf-2021-05-25", DeviceId: "asdf", Value: 620, MeasurementUnit: "HUMD"},
-		{ID: "asdf-2021-05-25", DeviceId: "asdf", Value: 630, MeasurementUnit: "HUMD"},
+		{SensorID: "asdf", Value: 600, MeasurementUnit: "HUMD", CreationTime: time.Now().Format(time.RFC3339)},
+		{SensorID: "asdf", Value: 610, MeasurementUnit: "HUMD", CreationTime: time.Now().Format(time.RFC3339)},
+		{SensorID: "asdf", Value: 620, MeasurementUnit: "HUMD", CreationTime: time.Now().Format(time.RFC3339)},
+		{SensorID: "asdf", Value: 630, MeasurementUnit: "HUMD", CreationTime: time.Now().Format(time.RFC3339)},
 
-		{ID: "fdsa-2021-05-25", DeviceId: "fdsa", Value: 170, MeasurementUnit: "TEMP"},
-		{ID: "fdsa-2021-05-25", DeviceId: "fdsa", Value: 180, MeasurementUnit: "TEMP"},
-		{ID: "fdsa-2021-05-25", DeviceId: "fdsa", Value: 190, MeasurementUnit: "TEMP"},
+		{SensorID: "fdsa", Value: 170, MeasurementUnit: "TEMP", CreationTime: time.Now().Format(time.RFC3339)},
+		{SensorID: "fdsa", Value: 180, MeasurementUnit: "TEMP", CreationTime: time.Now().Format(time.RFC3339)},
+		{SensorID: "fdsa", Value: 190, MeasurementUnit: "TEMP", CreationTime: time.Now().Format(time.RFC3339)},
 	}
 
 	for _, log := range logs {
-		logJSON, err := json.Marshal(log)
-		if err != nil {
-			return err
-		}
-		err = ctx.GetStub().PutState(log.ID, logJSON)
-		if err != nil {
-			return fmt.Errorf("failed to put to world state. %v", err)
-		}
+		t.SetSensorState(ctx, log.SensorID, log.Value, log.MeasurementUnit, log.CreationTime)
 	}
 
 	return nil
 }
 
-func (t *SmartContract) RecordLog(ctx contractapi.TransactionContextInterface, id string, deviceId string, value int, measurementUnit string) error {
+func (t *SmartContract) SetSensorState(ctx contractapi.TransactionContextInterface, deviceId string, value int, measurementUnit string, creationTimeRFC3339 string) error {
+	creationTime, err := time.Parse(time.RFC3339, creationTimeRFC3339)
+	if err != nil {
+		return err
+	}
+
+	timeframe := creationTime.Format("2006-01-02T15:04")
+	updateAggregation(ctx, deviceId, timeframe, value)
+	timeframe = creationTime.Format("2006-01-02T15")
+	updateAggregation(ctx, deviceId, timeframe, value)
+	timeframe = creationTime.Format("2006-01-02")
+	updateAggregation(ctx, deviceId, timeframe, value)
+	timeframe = creationTime.Format("2006-01")
+	updateAggregation(ctx, deviceId, timeframe, value)
+
 	log := &Log{
-		ID:              id,
-		DeviceId:        deviceId,
+		SensorID:        deviceId,
+		CreationTime:    creationTime.Format(time.RFC3339),
 		Value:           value,
 		MeasurementUnit: measurementUnit,
 	}
@@ -68,11 +76,66 @@ func (t *SmartContract) RecordLog(ctx contractapi.TransactionContextInterface, i
 	if err != nil {
 		return err
 	}
-	err = ctx.GetStub().PutState(id, assetBytes)
+	err = ctx.GetStub().PutState(deviceId, assetBytes)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func updateAggregation(ctx contractapi.TransactionContextInterface, sensorId string, timeframe string, value int) error {
+	objectKey := "sensor~timeframe"
+	iterator, err := ctx.GetStub().GetStateByPartialCompositeKey(objectKey, []string{sensorId, timeframe})
+	if err != nil {
+		return err
+	}
+	defer iterator.Close()
+	var aggregationJSON Aggregation
+	if iterator.HasNext() {
+		res, err := iterator.Next()
+		if err != nil {
+			return err
+		}
+		err = json.Unmarshal(res.Value, &aggregationJSON)
+		if err != nil {
+			return err
+		}
+		aggregationJSON.Sum += value
+		aggregationJSON.Count += 1
+		if aggregationJSON.Min > value {
+			aggregationJSON.Min = value
+		}
+		if aggregationJSON.Max < value {
+			aggregationJSON.Max = value
+		}
+	} else {
+		aggregationJSON = Aggregation{
+			SensorID:  sensorId,
+			TimeFrame: timeframe,
+			Count:     1,
+			Sum:       value,
+			Min:       value,
+			Max:       value,
+		}
+	}
+	key, err := ctx.GetStub().CreateCompositeKey(objectKey, []string{sensorId, timeframe})
+	if err != nil {
+		return err
+	}
+	bytes, err := json.Marshal(aggregationJSON)
+	if err != nil {
+		return err
+	}
+	return ctx.GetStub().PutState(key, bytes)
+}
+
+func (t *SmartContract) GetAggregation(ctx contractapi.TransactionContextInterface, sensorId string, timeframe string) ([]*Aggregation, error) {
+	objectKey := "sensor~timeframe"
+	iterator, err := ctx.GetStub().GetStateByPartialCompositeKey(objectKey, []string{sensorId, timeframe})
+	if err != nil {
+		return nil, err
+	}
+	return constructQueryResponseFromIteratorAggregator(iterator)
 }
 
 func (t *SmartContract) GetHistoryForKey(ctx contractapi.TransactionContextInterface, id string) (string, error) {
@@ -169,4 +232,25 @@ func constructQueryResponseFromIterator(resultsIterator shim.StateQueryIteratorI
 
 	}
 	return logs, nil
+}
+
+func constructQueryResponseFromIteratorAggregator(resultsIterator shim.StateQueryIteratorInterface) ([]*Aggregation, error) {
+	var aggs []*Aggregation
+	for resultsIterator.HasNext() {
+
+		queryResult, err := resultsIterator.Next()
+		if err != nil {
+			return nil, err
+		}
+		var agg Aggregation
+		err = json.Unmarshal(queryResult.Value, &agg)
+
+		if err != nil {
+			return nil, err
+		}
+
+		aggs = append(aggs, &agg)
+
+	}
+	return aggs, nil
 }
