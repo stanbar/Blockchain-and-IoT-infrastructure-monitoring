@@ -23,6 +23,13 @@ var (
 	AssetIssuer  = AssetKeypair.Address()
 )
 
+func (pt PhysicsType) RandomValueInt() int {
+	if pt == TEMP {
+		return temperature.RandomTemperatureInt()
+	}
+	return humidity.RandomHumidityInt()
+}
+
 func (pt PhysicsType) RandomValue() [32]byte {
 	if pt == TEMP {
 		return temperature.RandomTemperature()

@@ -45,3 +45,19 @@ func RandomTemperature() [32]byte {
 	copy(output[:], strconv.Itoa(result))
 	return output
 }
+
+func RandomTemperatureInt() int {
+	now := now()
+	fmt.Println(now)
+
+	hourDotMinutes := float64(now.Hour()) + (0.0169491 * float64(now.Minute()))
+
+	temp := SinDay(hourDotMinutes)
+	temp = MutByWeek(temp, int(now.Weekday()))
+	temp = MutByDeviation(temp)
+	fmt.Println("temp", temp)
+
+	multipled := temp * 10
+	result := int(math.Round(multipled))
+	return result
+}

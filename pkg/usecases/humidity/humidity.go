@@ -36,3 +36,15 @@ func RandomHumidity() [32]byte {
 	copy(output[:], strconv.Itoa(result))
 	return output
 }
+
+func RandomHumidityInt() int {
+	now := now()
+	hourDotMinutes := float64(now.Hour()) + (0.0169491 * float64(now.Minute()))
+
+	humd := SinValue(hourDotMinutes)
+	humd = MutByDeviation(humd)
+
+	multipled := humd * 10
+	result := int(math.Round(multipled))
+	return result
+}
