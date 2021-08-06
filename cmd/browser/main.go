@@ -31,35 +31,15 @@ func main() {
 
 	defer conn.Close()
 
-	// for _, aggregator := range aggregator.Aggregators[3:] {
-	// 	res := getValuesFromPeroid(conn, functions.AvgAssetName, helpers.DevicesKeypairs[0].Address(), aggregator, 10000000000)
-	// 	log.Println("avg", res)
-	// }
-
-	// for _, aggregator := range aggregator.Aggregators[3:] {
-	// 	res := getValuesFromPeroid(conn, functions.MinAssetName, helpers.DevicesKeypairs[0].Address(), aggregator, 10000000000)
-	// 	log.Println("min", res)
-	// }
-
-	// for _, aggregator := range aggregator.Aggregators[3:] {
-	// res := getValuesFromPeroid(conn, functions.MaxAssetName, helpers.DevicesKeypairs[0].Address(), aggregator, 10000000000)
-	// log.Println("max", res)
-	// }
-
-	// for _, aggregator := range aggregator.Aggregators {
-	// 	res := getValuesPredicate(conn, functions.MinAssetName, helpers.DevicesKeypairs[0].Address(), aggregator, ">", 500)
-	// 	log.Println("min > 500", res)
-	// }
 	// 1. GET ALL TRANSACTIONS WHERE
-	// values := get1Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 1)
-	// log.Println(len(values))
-	// values = get1Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 2)
-	// log.Println(len(values))
-	// values = get1Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 3)
-	// log.Println(len(values))
+	values := get1Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 1)
+	log.Println(len(values))
+	values = get1Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 2)
+	log.Println(len(values))
+	values = get1Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 3)
+	log.Println(len(values))
 
 	end3 := time.Unix(1617898929, 0)
-	// from := endOfCampaing.Add(-60 * time.Minute)
 	from3 := end3.AddDate(0, 0, -1)
 
 	end2 := from3.AddDate(0, 0, -1)
@@ -71,74 +51,44 @@ func main() {
 	froms := []time.Time{from1, from2, from3}
 	tos := []time.Time{end1, end2, end3}
 
-	values := get1Tx(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, froms, tos)
+	values = get1Tx(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, froms, tos)
 	log.Println(len(values))
 
 	// 2. GET ALL TRANSACTIONS WHERE $value_{min}$ $<$ $sensor_n.value$ $<$ $value_{max}$
-	// res := get2(conn, helpers.DevicesKeypairs[0], "<", 700)
-	// log.Println("max < 700", res)
+	res := get2(conn, helpers.DevicesKeypairs[0], "<", 700)
+	log.Println("max < 700", res)
 
 	// 3. GET AVG($sensor_N$, $unit$) WHERE $created\_at$ $>$ time AND $created\_at$ $<$ $time$
-	// endOfCampaing := time.Unix(1617898929, 0)
-	// // from := endOfCampaing.Add(-60 * time.Minute)
-	// from := endOfCampaing.AddDate(0, 0, -1)
-	// value = get3Tx(conn, helpers.DevicesKeypairs[0].Address(), from, endOfCampaing)
-	// log.Println("[TX] one day", value)
+	endOfCampaing := time.Unix(1617898929, 0)
+	// from := endOfCampaing.Add(-60 * time.Minute)
+	from := endOfCampaing.AddDate(0, 0, -1)
+	value := get3Tx(conn, helpers.DevicesKeypairs[0].Address(), from, endOfCampaing)
+	log.Println("[TX] one day", value)
 
-	// value := get3Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 1, false)
-	// log.Println("[AGG] one day", value)
+	value = get3Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 1, false)
+	log.Println("[AGG] one day", value)
 
-	// value = get3Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 2)
-	// log.Println("[AGG] two days", value)
+	value = get3Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 2, false)
+	log.Println("[AGG] two days", value)
 
-	// from = endOfCampaing.AddDate(0, 0, -2)
-	// value = get3Tx(conn, helpers.DevicesKeypairs[0].Address(), from, endOfCampaing)
-	// log.Println("[TX] two days", value)
+	from = endOfCampaing.AddDate(0, 0, -2)
+	value = get3Tx(conn, helpers.DevicesKeypairs[0].Address(), from, endOfCampaing)
+	log.Println("[TX] two days", value)
 
-	// value = get3Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 3)
-	// log.Println("[AGG] three days", value)
+	value = get3Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.ONE_DAY, 3, false)
+	log.Println("[AGG] three days", value)
 
-	// from = endOfCampaing.AddDate(0, 0, -3)
-	// value = get3Tx(conn, helpers.DevicesKeypairs[0].Address(), from, endOfCampaing)
-	// log.Println("[TX] three days", value)
+	from = endOfCampaing.AddDate(0, 0, -3)
+	value = get3Tx(conn, helpers.DevicesKeypairs[0].Address(), from, endOfCampaing)
+	log.Println("[TX] three days", value)
 
 	// 4. GET COUNT(*) WHERE SENSOR = $sensor_N$ AND UNIT=$unit$ AND $created\_at$ $>$ $time$
-	// countTxs(conn, helpers.DevicesKeypairs[0].Address(), usecases.TEMP, functions.AVG, 1, aggregator.SIX_HOURS)
-	// countTxsTimeBounds(conn, helpers.DevicesKeypairs[0].Address(), 1, aggregator.SIX_HOURS)
-
-	// getValuesPredicateTx(conn, usecases.HUMD, helpers.DevicesKeypairs[0], "<", 700)
-
-	// countTxs(conn, helpers.DevicesKeypairs[0].Address(), usecases.TEMP, functions.AVG, 2, aggregator.SIX_HOURS)
-	// countTxs(conn, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.FIVE_SECS)
-	// countTxs(conn, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.THIRTY_SECS)
-	// countTxs(conn, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.ONE_MIN)
-	// countTxs(conn, helpers.DevicesKeypairs[0].Address(), usecases.HUMD, functions.AVG, 1, aggregator.FIVE_MINS)
-
-	// values := getValuesPredicate(conn, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.FIVE_SECS), "<", 700)
-	// log.Println(len(values))
-	// values = getValuesPredicateTx(conn, usecases.TEMP, helpers.DevicesKeypairs[0], "<", 700)
-	// log.Println(len(values))
-	// values := getValuesFromPeroidTx(conn, helpers.DevicesKeypairs[0].Address(), 100000000000)
-	// log.Println(len(values))
-	// values = getValuesFromLastNIntervals(conn, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.FIVE_SECS), 100000000000)
-	// log.Println(len(values))
-	// values = getValuesFromPeroid(conn, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.ONE_MIN), 100000000000)
-	// log.Println(len(values))
-	// values = getValuesFromPeroid(conn, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.ONE_HOUR), 100000000000)
-	// log.Println(len(values))
-	// values = getValuesFromPeroid(conn, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.ONE_DAY), 100000000000)
-	// log.Println(len(values))
-	// values = queryFiveAggregated(conn, functions.AVG, helpers.DevicesKeypairs[0].Address(), aggregator.ByTimeInterval(aggregator.FIVE_SECS), 100000000000)
-	// value := get3Tx(conn, helpers.DevicesKeypairs[0].Address())
-	// log.Println(value)
-	// value64 = get3Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.SIX_HOURS, 2)
-	// log.Println("six hours 2", value64)
-	// value64 = get3Agg(conn, helpers.DevicesKeypairs[0].Address(), functions.AVG, aggregator.FIVE_MINS, 1)
-	// log.Println("one hour 1", value64)
+	get4Agg(conn, helpers.DevicesKeypairs[0].Address(), usecases.TEMP, functions.AVG, 1, aggregator.SIX_HOURS)
+	get4Tx(conn, helpers.DevicesKeypairs[0].Address(), 1, aggregator.SIX_HOURS)
 
 }
 
-func countTxs(conn *pgxpool.Pool, sensorAddress string, usecase usecases.PhysicsType, function functions.FunctionType, lastTxs int, timeInterval aggregator.TimeInterval) {
+func get4Agg(conn *pgxpool.Pool, sensorAddress string, usecase usecases.PhysicsType, function functions.FunctionType, lastTxs int, timeInterval aggregator.TimeInterval) {
 	defer utils.Duration(utils.Track("countTxs"))
 	start := time.Now()
 
@@ -200,7 +150,7 @@ func countTxs(conn *pgxpool.Pool, sensorAddress string, usecase usecases.Physics
 	log.Println("Pre interpreted count: ", toInt-fromInt)
 }
 
-func countTxsTimeBounds(conn *pgxpool.Pool, sensorAddress string, lastTxs int, timeInterval aggregator.TimeInterval) {
+func get4Tx(conn *pgxpool.Pool, sensorAddress string, lastTxs int, timeInterval aggregator.TimeInterval) {
 	defer utils.Duration(utils.Track("countTxsTimeBounds"))
 	start := time.Now()
 	to := sensorAddress
@@ -224,55 +174,6 @@ func countTxsTimeBounds(conn *pgxpool.Pool, sensorAddress string, lastTxs int, t
 	}
 
 	log.Println("count: ", count)
-}
-
-func getValuesFromLastNIntervals(conn *pgxpool.Pool, function functions.FunctionType, sensorAddress string, aggregator aggregator.Aggregator, lastTxs int) []int {
-	defer utils.Duration(utils.Track("getValuesFromPeroid"))
-	start := time.Now()
-	rows, err := conn.Query(context.Background(), `
-  SELECT memo, account_sequence FROM history_operations ops
-  JOIN history_transactions txs on ops.transaction_id = txs.id
-  WHERE type = 1
-    AND details->>'from' = $1
-    AND details->>'to' = $2
-    AND details->>'asset_code' = $3
-  ORDER BY account_sequence DESC
-  LIMIT $4;
-  `, aggregator.Keypair.Address(), sensorAddress, function.Asset().GetCode(), lastTxs)
-
-	elapsed := time.Since(start)
-	log.Println("execute sql", elapsed)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-	return parseValues(rows, aggregator.Keypair, sensorAddress)
-}
-
-func getValuesFromPeroidTx(conn *pgxpool.Pool, sensorAddress string, from time.Time, to time.Time) []int {
-	defer utils.Duration(utils.Track("getValuesFromPeroidTx"))
-	start := time.Now()
-
-	log.Printf("from: %d to: %d\n", from.Unix(), to.Unix())
-
-	rows, err := conn.Query(context.Background(), `
-  SELECT memo, account_sequence FROM history_operations ops
-  JOIN history_transactions txs on ops.transaction_id = txs.id
-  WHERE type = 1
-    AND details->>'from' = $1
-    AND details->>'to' = $2
-    AND lower(txs.time_bounds) > $3
-    AND lower(txs.time_bounds) =< $4
-  ORDER BY account_sequence DESC;
-  `, sensorAddress, helpers.BatchKeypair.Address(), from.Unix(), to.Unix())
-
-	elapsed := time.Since(start)
-	log.Println("executed sql", elapsed)
-
-	if err != nil {
-		log.Panicln(err)
-	}
-	return parseValues(rows, helpers.BatchKeypair, sensorAddress)
 }
 
 func get2(conn *pgxpool.Pool, sensor *keypair.Full, operation string, predicate int) []int {
@@ -319,49 +220,6 @@ func get2(conn *pgxpool.Pool, sensor *keypair.Full, operation string, predicate 
 		}
 	}
 	log.Printf("parsed %d values in %s", len(values), time.Since(start))
-	return values
-}
-
-func getValuesPredicate(conn *pgxpool.Pool, function functions.FunctionType, sensorAddress string, aggregator aggregator.Aggregator, operation string, predicate int) []int {
-	defer utils.Duration(utils.Track("getValuesPredicate"))
-	start := time.Now()
-	rows, err := conn.Query(context.Background(), `
-  SELECT memo, account_sequence FROM history_operations ops
-  JOIN history_transactions txs on ops.transaction_id = txs.id
-  WHERE type = 1
-    AND details->>'from' = $1
-    AND details->>'to' = $2
-    AND details->>'asset_code' = $3
-  ORDER BY account_sequence DESC
-  `, aggregator.Keypair.Address(), sensorAddress, function.Asset().GetCode())
-
-	log.Println("execute sql", time.Since(start))
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	values := []int{}
-	for _, v := range parseValues(rows, aggregator.Keypair, sensorAddress) {
-		switch operation {
-		case ">":
-			if v > predicate {
-				values = append(values, v)
-			}
-		case ">=":
-			if v >= predicate {
-				values = append(values, v)
-			}
-		case "<":
-			if v < predicate {
-				values = append(values, v)
-			}
-		case "<=":
-			if v <= predicate {
-				values = append(values, v)
-			}
-		}
-	}
 	return values
 }
 
