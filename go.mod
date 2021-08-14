@@ -3,7 +3,7 @@ module github.com/stellot/stellot-iot
 go 1.15
 
 require (
-	github.com/hyperledger/fabric-sdk-go v1.0.0 // indirect
+	github.com/hyperledger/fabric-sdk-go v1.0.1-0.20210201220314-86344dc25e5d
 	github.com/jackc/pgx/v4 v4.11.0
 	github.com/jorrizza/ed2curve25519 v0.1.0
 	github.com/stellar/go v0.0.0-20201218182351-013bf861cb0f

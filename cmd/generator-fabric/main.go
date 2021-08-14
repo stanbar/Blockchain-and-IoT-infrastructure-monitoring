@@ -17,6 +17,7 @@ import (
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/config"
 	"github.com/hyperledger/fabric-sdk-go/pkg/gateway"
 	"github.com/stellot/stellot-iot/pkg/usecases"
+	"github.com/stellot/stellot-iot/pkg/utils"
 	"golang.org/x/time/rate"
 )
 
@@ -38,11 +39,14 @@ func main() {
 		}
 	}
 	ccpPath := filepath.Join(
-		"/",
-		"Users",
-		"stasbar",
-		"Sandbox",
-		"fabric-samples",
+    "/",
+    "home",
+    "stanbar",
+    "go",
+    "src",
+    "github.com",
+    "stanbar",
+    "fabric-samples",
 		"test-network",
 		"organizations",
 		"peerOrganizations",
@@ -63,7 +67,7 @@ func main() {
 		log.Fatalf("Failed to get network: %v", err)
 	}
 
-	contract := network.GetContract("logs7")
+	contract := network.GetContract("stelliot")
 
 	log.Println("--> Evaluate Transaction: GetAggregation, function returns aggregation")
 	result, err := contract.EvaluateTransaction("GetAggregation", "asdf", "2021-06-05T18")
@@ -84,11 +88,14 @@ func main() {
 func populateWallet(wallet *gateway.Wallet) error {
 	log.Println("============ Populating wallet ============")
 	credPath := filepath.Join(
-		"/",
-		"Users",
-		"stasbar",
-		"Sandbox",
-		"fabric-samples",
+    "/",
+    "home",
+    "stanbar",
+    "go",
+    "src",
+    "github.com",
+    "stanbar",
+    "fabric-samples",
 		"test-network",
 		"organizations",
 		"peerOrganizations",
@@ -133,6 +140,10 @@ type sensorDevice struct {
 	RateLimiter *rate.Limiter
 }
 
+var (
+	LogsNumber, _          = strconv.Atoi(utils.MustGetenv("LOGS_NUMBER"))
+)
+
 func startGenerator(contract *gateway.Contract, iotDevices []sensorDevice) error {
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
@@ -143,7 +154,7 @@ func startGenerator(contract *gateway.Contract, iotDevices []sensorDevice) error
 		go func(params sensorDevice, wg *sync.WaitGroup) {
 			defer wg.Done()
 			time.Sleep(time.Duration(1000.0*params.DeviceId/len(iotDevices)) * time.Millisecond)
-			for i := 0; true; i++ {
+			for i := 0; i < LogsNumber; i++ {
 				select {
 				case <-ctx.Done():
 					log.Printf("Sensor %d received cancelation signal, exiting \n", params.DeviceId)
