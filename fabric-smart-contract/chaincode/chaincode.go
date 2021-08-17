@@ -138,6 +138,26 @@ func (t *SmartContract) GetAggregation(ctx contractapi.TransactionContextInterfa
 	return constructQueryResponseFromIteratorAggregator(iterator)
 }
 
+func (t *SmartContract) GetHistoryForKeyCount(ctx contractapi.TransactionContextInterface, id string) (string, error) {
+	resultsIterator, err := ctx.GetStub().GetHistoryForKey(id)
+	if err != nil {
+		return err.Error(), err
+	}
+	defer resultsIterator.Close()
+
+	// buffer is a JSON array containing historic values for the marble
+  size := 0
+	for resultsIterator.HasNext() {
+		_, err := resultsIterator.Next()
+		if err != nil {
+			return err.Error(), err
+		}
+    size = size + 1
+  }
+
+	return strconv.Itoa(size), nil
+}
+
 func (t *SmartContract) GetHistoryForKey(ctx contractapi.TransactionContextInterface, id string) (string, error) {
 	resultsIterator, err := ctx.GetStub().GetHistoryForKey(id)
 	if err != nil {
