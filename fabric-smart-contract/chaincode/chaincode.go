@@ -322,6 +322,38 @@ func (t *SmartContract) Get3(ctx contractapi.TransactionContextInterface, id str
 	return string(buffer.Bytes()), nil
 }
 
+func (t *SmartContract) Get4(ctx contractapi.TransactionContextInterface, id string, createdFrom string) (string, error) {
+
+	from, err := parseTime(createdFrom)
+	if err != nil {
+		return err.Error(), err
+	}
+
+	resultsIterator, err := ctx.GetStub().GetHistoryForKey(id)
+	if err != nil {
+		return err.Error(), err
+	}
+	defer resultsIterator.Close()
+
+	size := 0
+	for resultsIterator.HasNext() {
+		response, err := resultsIterator.Next()
+		if err != nil {
+			return err.Error(), err
+		}
+
+		var log Log
+		err = json.Unmarshal(response.Value, &log)
+		createdAt, err := time.Parse(time.RFC3339, log.CreationTime)
+
+		if createdAt.After(from) {
+			size = size + 1
+		}
+	}
+
+	return string(strconv.Itoa(size)), nil
+}
+
 func parseTime(input string) (time.Time, error) {
 	res, err := time.Parse("2006", input)
 	if err == nil {
