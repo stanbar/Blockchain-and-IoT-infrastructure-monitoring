@@ -10,6 +10,7 @@ import (
 
 	"github.com/hyperledger/fabric-chaincode-go/shim"
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
+	"github.com/hyperledger/fabric-protos-go/ledger/queryresult"
 )
 
 type SmartContract struct {
@@ -235,37 +236,11 @@ func (t *SmartContract) Get1(ctx contractapi.TransactionContextInterface, id str
 		if strings.HasPrefix(time.Unix(response.Timestamp.Seconds, 0).Format(time.RFC3339), timeframe1) ||
 			strings.HasPrefix(time.Unix(response.Timestamp.Seconds, 0).Format(time.RFC3339), timeframe2) ||
 			strings.HasPrefix(time.Unix(response.Timestamp.Seconds, 0).Format(time.RFC3339), timeframe3) {
-
 			// Add a comma before array members, suppress it for the first array member
 			if bArrayMemberAlreadyWritten == true {
 				buffer.WriteString(",")
 			}
-			buffer.WriteString("{\"TxId\":")
-			buffer.WriteString("\"")
-			buffer.WriteString(response.TxId)
-			buffer.WriteString("\"")
-
-			buffer.WriteString(", \"Value\":")
-			// if it was a delete operation on given key, then we need to set the
-			//corresponding value null. Else, we will write the response.Value
-			//as-is (as the Value itself a JSON marble)
-			if response.IsDelete {
-				buffer.WriteString("null")
-			} else {
-				buffer.WriteString(string(response.Value))
-			}
-
-			buffer.WriteString(", \"Timestamp\":")
-			buffer.WriteString("\"")
-			buffer.WriteString(time.Unix(response.Timestamp.Seconds, int64(response.Timestamp.Nanos)).String())
-			buffer.WriteString("\"")
-
-			buffer.WriteString(", \"IsDelete\":")
-			buffer.WriteString("\"")
-			buffer.WriteString(strconv.FormatBool(response.IsDelete))
-			buffer.WriteString("\"")
-
-			buffer.WriteString("}")
+			writeToBuffer(&buffer, response)
 			bArrayMemberAlreadyWritten = true
 		}
 	}
@@ -274,6 +249,82 @@ func (t *SmartContract) Get1(ctx contractapi.TransactionContextInterface, id str
 	fmt.Printf("- get1 returning:\n%s\n", buffer.String())
 
 	return string(buffer.Bytes()), nil
+}
+
+func (t *SmartContract) Get2(ctx contractapi.TransactionContextInterface, id string, valueMin string, valueMax string) (string, error) {
+
+	min, err := strconv.Atoi(valueMin)
+	if err != nil {
+		return err.Error(), err
+	}
+	max, err := strconv.Atoi(valueMax)
+	if err != nil {
+		return err.Error(), err
+	}
+
+	resultsIterator, err := ctx.GetStub().GetHistoryForKey(id)
+	if err != nil {
+		return err.Error(), err
+	}
+	defer resultsIterator.Close()
+
+	// buffer is a JSON array containing historic values for the marble
+	var buffer bytes.Buffer
+	buffer.WriteString("[")
+
+	bArrayMemberAlreadyWritten := false
+	for resultsIterator.HasNext() {
+		response, err := resultsIterator.Next()
+		if err != nil {
+			return err.Error(), err
+		}
+
+		var log Log
+		err = json.Unmarshal(response.Value, &log)
+
+		if log.Value > min && log.Value < max {
+			// Add a comma before array members, suppress it for the first array member
+			if bArrayMemberAlreadyWritten == true {
+				buffer.WriteString(",")
+			}
+			writeToBuffer(&buffer, response)
+			bArrayMemberAlreadyWritten = true
+		}
+	}
+	buffer.WriteString("]")
+
+	fmt.Printf("- get1 returning:\n%s\n", buffer.String())
+
+	return string(buffer.Bytes()), nil
+}
+
+func writeToBuffer(buffer *bytes.Buffer, response *queryresult.KeyModification) {
+	buffer.WriteString("{\"TxId\":")
+	buffer.WriteString("\"")
+	buffer.WriteString(response.TxId)
+	buffer.WriteString("\"")
+
+	buffer.WriteString(", \"Value\":")
+	// if it was a delete operation on given key, then we need to set the
+	//corresponding value null. Else, we will write the response.Value
+	//as-is (as the Value itself a JSON marble)
+	if response.IsDelete {
+		buffer.WriteString("null")
+	} else {
+		buffer.WriteString(string(response.Value))
+	}
+
+	buffer.WriteString(", \"Timestamp\":")
+	buffer.WriteString("\"")
+	buffer.WriteString(time.Unix(response.Timestamp.Seconds, int64(response.Timestamp.Nanos)).String())
+	buffer.WriteString("\"")
+
+	buffer.WriteString(", \"IsDelete\":")
+	buffer.WriteString("\"")
+	buffer.WriteString(strconv.FormatBool(response.IsDelete))
+	buffer.WriteString("\"")
+
+	buffer.WriteString("}")
 }
 
 func (t *SmartContract) QueryLogs(ctx contractapi.TransactionContextInterface, queryString string) ([]*Log, error) {
