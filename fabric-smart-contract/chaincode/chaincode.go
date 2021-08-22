@@ -273,6 +273,87 @@ func (t *SmartContract) Get2(ctx contractapi.TransactionContextInterface, id str
 	return string(buffer.Bytes()), nil
 }
 
+func (t *SmartContract) Get3(ctx contractapi.TransactionContextInterface, id string, createdFrom string, createdTo string) (string, error) {
+
+	from, err := parseTime(createdFrom)
+	if err != nil {
+		return err.Error(), err
+	}
+
+	to, err := parseTime(createdTo)
+	if err != nil {
+		return err.Error(), err
+	}
+
+	resultsIterator, err := ctx.GetStub().GetHistoryForKey(id)
+	if err != nil {
+		return err.Error(), err
+	}
+	defer resultsIterator.Close()
+
+	// buffer is a JSON array containing historic values for the marble
+	var buffer bytes.Buffer
+	buffer.WriteString("[")
+
+	bArrayMemberAlreadyWritten := false
+	for resultsIterator.HasNext() {
+		response, err := resultsIterator.Next()
+		if err != nil {
+			return err.Error(), err
+		}
+
+		var log Log
+		err = json.Unmarshal(response.Value, &log)
+		createdAt, err := time.Parse(time.RFC3339, log.CreationTime)
+
+		if createdAt.After(from) && createdAt.Before(to) {
+			// Add a comma before array members, suppress it for the first array member
+			if bArrayMemberAlreadyWritten == true {
+				buffer.WriteString(",")
+			}
+			writeToBuffer(&buffer, response)
+			bArrayMemberAlreadyWritten = true
+		}
+	}
+	buffer.WriteString("]")
+
+	fmt.Printf("- get1 returning:\n%s\n", buffer.String())
+
+	return string(buffer.Bytes()), nil
+}
+
+func parseTime(input string) (time.Time, error) {
+	res, err := time.Parse("2006", input)
+	if err == nil {
+		return res, nil
+	}
+	res, err = time.Parse("2006-01", input)
+	if err == nil {
+		return res, nil
+	}
+	res, err = time.Parse("2006-01-02", input)
+	if err == nil {
+		return res, nil
+	}
+	res, err = time.Parse("2006-01-02T15", input)
+	if err == nil {
+		return res, nil
+	}
+	res, err = time.Parse("2006-01-02T15:04", input)
+	if err == nil {
+		return res, nil
+	}
+	res, err = time.Parse("2006-01-02T15:04:05", input)
+	if err == nil {
+		return res, nil
+	}
+	res, err = time.Parse(time.RFC3339, input)
+	if err == nil {
+		return res, nil
+	}
+	return res, err
+}
+
 func writeToBuffer(buffer *bytes.Buffer, response *queryresult.KeyModification) {
 	buffer.WriteString("{\"TxId\":")
 	buffer.WriteString("\"")
