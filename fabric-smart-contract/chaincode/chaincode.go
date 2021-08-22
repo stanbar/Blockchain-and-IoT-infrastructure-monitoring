@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hyperledger/fabric-chaincode-go/shim"
@@ -146,14 +147,14 @@ func (t *SmartContract) GetHistoryForKeyCount(ctx contractapi.TransactionContext
 	defer resultsIterator.Close()
 
 	// buffer is a JSON array containing historic values for the marble
-  size := 0
+	size := 0
 	for resultsIterator.HasNext() {
 		_, err := resultsIterator.Next()
 		if err != nil {
 			return err.Error(), err
 		}
-    size = size + 1
-  }
+		size = size + 1
+	}
 
 	return strconv.Itoa(size), nil
 }
@@ -210,6 +211,67 @@ func (t *SmartContract) GetHistoryForKey(ctx contractapi.TransactionContextInter
 	buffer.WriteString("]")
 
 	fmt.Printf("- getHistoryForMarble returning:\n%s\n", buffer.String())
+
+	return string(buffer.Bytes()), nil
+}
+
+func (t *SmartContract) Get1(ctx contractapi.TransactionContextInterface, id string, timeframe1 string, timeframe2 string, timeframe3 string) (string, error) {
+	resultsIterator, err := ctx.GetStub().GetHistoryForKey(id)
+	if err != nil {
+		return err.Error(), err
+	}
+	defer resultsIterator.Close()
+
+	// buffer is a JSON array containing historic values for the marble
+	var buffer bytes.Buffer
+	buffer.WriteString("[")
+
+	bArrayMemberAlreadyWritten := false
+	for resultsIterator.HasNext() {
+		response, err := resultsIterator.Next()
+		if err != nil {
+			return err.Error(), err
+		}
+		if strings.HasPrefix(time.Unix(response.Timestamp.Seconds, 0).Format(time.RFC3339), timeframe1) ||
+			strings.HasPrefix(time.Unix(response.Timestamp.Seconds, 0).Format(time.RFC3339), timeframe2) ||
+			strings.HasPrefix(time.Unix(response.Timestamp.Seconds, 0).Format(time.RFC3339), timeframe3) {
+
+			// Add a comma before array members, suppress it for the first array member
+			if bArrayMemberAlreadyWritten == true {
+				buffer.WriteString(",")
+			}
+			buffer.WriteString("{\"TxId\":")
+			buffer.WriteString("\"")
+			buffer.WriteString(response.TxId)
+			buffer.WriteString("\"")
+
+			buffer.WriteString(", \"Value\":")
+			// if it was a delete operation on given key, then we need to set the
+			//corresponding value null. Else, we will write the response.Value
+			//as-is (as the Value itself a JSON marble)
+			if response.IsDelete {
+				buffer.WriteString("null")
+			} else {
+				buffer.WriteString(string(response.Value))
+			}
+
+			buffer.WriteString(", \"Timestamp\":")
+			buffer.WriteString("\"")
+			buffer.WriteString(time.Unix(response.Timestamp.Seconds, int64(response.Timestamp.Nanos)).String())
+			buffer.WriteString("\"")
+
+			buffer.WriteString(", \"IsDelete\":")
+			buffer.WriteString("\"")
+			buffer.WriteString(strconv.FormatBool(response.IsDelete))
+			buffer.WriteString("\"")
+
+			buffer.WriteString("}")
+			bArrayMemberAlreadyWritten = true
+		}
+	}
+	buffer.WriteString("]")
+
+	fmt.Printf("- get1 returning:\n%s\n", buffer.String())
 
 	return string(buffer.Bytes()), nil
 }
