@@ -198,7 +198,6 @@ func (t *SmartContract) Get1(ctx contractapi.TransactionContextInterface, id str
 	}
 	defer resultsIterator.Close()
 
-	// buffer is a JSON array containing historic values for the marble
 	var buffer bytes.Buffer
 	buffer.WriteString("[")
 
