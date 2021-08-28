@@ -321,8 +321,103 @@ func (t *SmartContract) Get3(ctx contractapi.TransactionContextInterface, id str
 	return string(buffer.Bytes()), nil
 }
 
-func (t *SmartContract) Get4(ctx contractapi.TransactionContextInterface, id string, createdFrom string) (string, error) {
+func (t *SmartContract) Get3Agg(ctx contractapi.TransactionContextInterface, sensorId string, createdFrom string, createdTo string) (string, error) {
+	objectKey := "sensor~timeframe"
 
+	from, err := parseTime(createdFrom)
+	if err != nil {
+		return err.Error(), err
+	}
+	to, err := parseTime(createdTo)
+	if err != nil {
+		return err.Error(), err
+	}
+
+	var timeFrames []string
+	timeFrames = append(timeFrames, createdFrom)
+	if len(createdFrom) == 4 { // year ranges
+		base := from
+		for base.Year() < to.Year() {
+			base = base.AddDate(1, 0, 0)
+			timeFrames = append(timeFrames, base.Format(time.RFC3339)[:4])
+		}
+	}
+	if len(createdFrom) == 7 { // year ranges
+		base := from
+		for base.Month() < to.Month() { // TODO handle year overflow
+			base = base.AddDate(0, 1, 0)
+			timeFrames = append(timeFrames, base.Format(time.RFC3339)[:7])
+		}
+	}
+	if len(createdFrom) == 10 { // year ranges
+		base := from
+		for base.Day() < to.Day() { // TODO handle month overflow
+			base = base.AddDate(0, 0, 1)
+			timeFrames = append(timeFrames, base.Format(time.RFC3339)[:10])
+		}
+	}
+
+	oneHour, err := time.ParseDuration("1h")
+	if len(createdFrom) == 13 { // year ranges
+		base := from
+		for base.Hour() < to.Hour() { // TODO handle month overflow
+			base = base.Add(oneHour)
+			timeFrames = append(timeFrames, base.Format(time.RFC3339)[:13])
+		}
+	}
+
+	oneMin, err := time.ParseDuration("1m")
+	if len(createdFrom) == 16 { // year ranges
+		base := from
+		for base.Minute() < to.Minute() { // TODO handle month overflow
+			base = base.Add(oneMin)
+			timeFrames = append(timeFrames, base.Format(time.RFC3339)[:16])
+		}
+	}
+
+	var buffer bytes.Buffer
+	buffer.WriteString("[")
+
+	bArrayMemberAlreadyWritten := false
+
+	for _, timeFrame := range timeFrames {
+		buffer.WriteString("timeframe: ")
+		buffer.WriteString(timeFrame)
+		buffer.WriteString("\n")
+
+		resultsIterator, err := ctx.GetStub().GetStateByPartialCompositeKey(objectKey, []string{sensorId, timeFrame})
+		if err != nil {
+			return err.Error(), err
+		}
+		defer resultsIterator.Close()
+		for resultsIterator.HasNext() {
+			response, err := resultsIterator.Next()
+			if err != nil {
+				return err.Error(), err
+			}
+			var agg Aggregation
+			err = json.Unmarshal(response.Value, &agg)
+			if err != nil {
+				return err.Error(), err
+			}
+
+			if bArrayMemberAlreadyWritten == true {
+				buffer.WriteString(",")
+			}
+			buffer.Write(response.Value)
+			buffer.WriteString("\n")
+			bArrayMemberAlreadyWritten = true
+		}
+	}
+
+	buffer.WriteString("]")
+
+	fmt.Printf("- get1 returning:\n%s\n", buffer.String())
+
+	return string(buffer.Bytes()), nil
+}
+
+func (t *SmartContract) Get4(ctx contractapi.TransactionContextInterface, id string, createdFrom string) (string, error) {
 	from, err := parseTime(createdFrom)
 	if err != nil {
 		return err.Error(), err
