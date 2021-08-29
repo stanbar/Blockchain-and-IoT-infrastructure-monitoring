@@ -26,31 +26,11 @@ type Log struct {
 
 type Aggregation struct {
 	SensorID  string `json:"sensorId"`
-	TimeFrame string `json:"timeFrame"` // 5sec, 30sec, 1min, 30min, 1h, 4h, 12h, 1d
+	TimeFrame string `json:"timeFrame"`
 	Sum       int    `json:"sum"`
 	Count     int    `json:"count"`
 	Max       int    `json:"max"`
 	Min       int    `json:"min"`
-}
-
-// InitLedger creates the initial set of assets in the ledger.
-func (t *SmartContract) InitLedger(ctx contractapi.TransactionContextInterface) error {
-	logs := []Log{
-		{SensorID: "asdf", Value: 600, MeasurementUnit: "HUMD", CreationTime: time.Now().Format(time.RFC3339)},
-		{SensorID: "asdf", Value: 610, MeasurementUnit: "HUMD", CreationTime: time.Now().Format(time.RFC3339)},
-		{SensorID: "asdf", Value: 620, MeasurementUnit: "HUMD", CreationTime: time.Now().Format(time.RFC3339)},
-		{SensorID: "asdf", Value: 630, MeasurementUnit: "HUMD", CreationTime: time.Now().Format(time.RFC3339)},
-
-		{SensorID: "fdsa", Value: 170, MeasurementUnit: "TEMP", CreationTime: time.Now().Format(time.RFC3339)},
-		{SensorID: "fdsa", Value: 180, MeasurementUnit: "TEMP", CreationTime: time.Now().Format(time.RFC3339)},
-		{SensorID: "fdsa", Value: 190, MeasurementUnit: "TEMP", CreationTime: time.Now().Format(time.RFC3339)},
-	}
-
-	for _, log := range logs {
-		t.SetSensorState(ctx, log.SensorID, log.Value, log.MeasurementUnit, log.CreationTime)
-	}
-
-	return nil
 }
 
 func (t *SmartContract) SetSensorState(ctx contractapi.TransactionContextInterface, deviceId string, value int, measurementUnit string, creationTimeRFC3339 string) error {
