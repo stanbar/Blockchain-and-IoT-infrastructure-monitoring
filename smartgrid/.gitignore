@@ -1,0 +1,11 @@
+node_modules/
+.next/
+dist/
+cache/
+artifacts/SmartGridGW.json
+artifacts/deployment.json
+*.tsbuildinfo
+
+# Override root .gitignore that ignores **/lib
+!webapp/lib/
+!webapp/lib/**
